@@ -3330,7 +3330,7 @@ contains
     type(ThirdOrder), intent(inout), allocatable :: thirdOrd
 
     !> Data from rangeseparated calculations
-    type(RangeSepFunc), intent(inout), allocatable ::rangeSep
+    type(RangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
@@ -5128,7 +5128,7 @@ contains
     class(DispersionIface), intent(inout), allocatable :: dispersion
 
     !> Data from rangeseparated calculations
-    type(RangeSepFunc), intent(inout), allocatable ::rangeSep
+    type(RangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> dense overlap matrix, required for rangeSep
     real(dp), intent(inout), allocatable :: SSqrReal(:,:)

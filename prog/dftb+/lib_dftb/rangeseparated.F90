@@ -94,8 +94,11 @@ module dftbp_rangeseparated
     !> spin down part of energy
     real(dp) :: lrEnergyDn
 
-    !> Is this spin restricted (1) or unrestricted (2)
-    integer :: nSpin
+    !> Is this spin polarised
+    logical :: tSpin
+
+    !> Number of spin channels in use
+    integer :: nSpinChannels
 
     !> algorithm for range separation screening
     integer :: rsAlg
@@ -121,8 +124,8 @@ contains
 
 
   !> Intitialize the range-sep module
-  subroutine RangeSepFunc_init(this, nAtom, species, speciesNames, hubbu, screen, omega, nSpin,&
-      & rsAlg)
+  subroutine RangeSepFunc_init(this, nAtom, species, speciesNames, hubbu, screen, omega, tSpin,&
+      & nSpin, rsAlg)
 
     !> class instance
     type(RangeSepFunc), intent(out) :: this
@@ -145,20 +148,23 @@ contains
     !> range separation parameter
     real(dp), intent(in) :: omega
 
+    !> Is this spin polarised
+    logical, intent(in) :: tSpin
+
     !> Is this spin restricted (1) or unrestricted (2)
     integer, intent(in) :: nSpin
 
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
 
-    call initAndAllocate(this, nAtom, hubbu, species, screen, omega, rsAlg, nSpin)
+    call initAndAllocate(this, nAtom, hubbu, species, screen, omega, rsAlg, tSpin)
     call checkRequirements(this)
 
   contains
 
 
     !> initialise data structures and allocate storage
-    subroutine initAndAllocate(this, nAtom, hubbu, species, screen, omega, rsAlg, nSpin)
+    subroutine initAndAllocate(this, nAtom, hubbu, species, screen, omega, rsAlg, tSpin)
 
       !> Instance
       class(RangeSepFunc), intent(out) :: this
@@ -181,15 +187,16 @@ contains
       !> Algorithm for range separation
       integer, intent(in) :: rsAlg
 
-      !> Is this spin restricted (1) or unrestricted (2)
-      integer, intent(in) :: nSpin
+      !> Is this spin polarised
+      logical, intent(in) :: tSpin
 
       this%tScreeningInited = .false.
       this%pScreeningThreshold = screen
       this%omega = omega
       this%lrEnergy = 0.0_dp
       this%rsAlg = rsAlg
-      this%nSpin = nSpin
+      this%tSpin = tSpin
+      this%nSpinChannels = nSpin
 
       allocate(this%coords(3, nAtom))
       allocate(this%species(nAtom))
@@ -208,7 +215,7 @@ contains
       class(RangeSepFunc), intent(inout) :: this
 
       ! Check for current restrictions
-      if (this%nSpin == 2 .and. this%rsAlg == rangeSepTypes%threshold) then
+      if (this%tSpin .and. this%rsAlg == rangeSepTypes%threshold) then
         call error("Spin-unrestricted calculation for thresholding algorithm not yet implemented!")
       end if
 
@@ -699,12 +706,14 @@ contains
       real(dp), dimension(:,:), pointer :: pHmn
 
       pHmn => tmpHH(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))
-      pHmn(:,:) = pHmn - 0.125_dp * this%nSpin * gammaTot * matmul(matmul(pSma, pPab), pSbn)
+      pHmn(:,:) = pHmn - 0.125_dp * this%nSpinChannels * gammaTot * matmul(matmul(pSma, pPab), pSbn)
 
     end subroutine updateHamiltonianBlock
 
   end subroutine addLrHamiltonianNeighbour
 
+
+  !> Matrix multiplication based algorithm
   subroutine addLrHamiltonianMatrix(this, iSquare, orb, overlap, densSqr, HH)
 
     !> class instance
@@ -716,9 +725,13 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
+    !> Dense matrix overlap
     real(dp), intent(in) :: overlap(:,:)
+
+    !> Square (unpacked) density matrix
     real(dp), intent(in) :: densSqr(:,:)
 
+    !> Square (unpacked) Hamiltonian to be updated.
     real(dp), intent(inout) :: HH(:,:)
 
     real(dp), allocatable :: Smat(:,:)
@@ -726,25 +739,26 @@ contains
     real(dp), allocatable :: LRgammaAO(:,:)
     real(dp), allocatable :: Hlr(:,:)
 
-    integer :: nAOs
+    integer :: nOrbs
 
-    nAOs = size(overlap,dim=1)
+    nOrbs = size(overlap,dim=1)
 
-    allocate(Smat(nAOs,nAOs))
-    allocate(Dmat(nAOs,nAOs))
-    allocate(LRgammaAO(nAOs,nAOs))
-    allocate(Hlr(nAOs,nAOs))
+    allocate(Smat(nOrbs,nOrbs))
+    allocate(Dmat(nOrbs,nOrbs))
+    allocate(LRgammaAO(nOrbs,nOrbs))
+    allocate(Hlr(nOrbs,nOrbs))
 
     call allocateAndInit(this, iSquare, orb, overlap, densSqr, HH, Smat, Dmat, LRgammaAO)
     call evaluateHamiltonian(this, Smat, Dmat, LRgammaAO, Hlr)
-    HH(:,:) = HH(:,:) + Hlr(:,:)
-    this%lrenergy = this%lrenergy + 0.5_dp * sum(Dmat(:,:)*Hlr(:,:))
+    HH(:,:) = HH + Hlr
+    this%lrenergy = this%lrenergy + 0.5_dp * sum(Dmat * Hlr)
 
   contains
 
+    !> set up storage and some needed matrix content
     subroutine allocateAndInit(this, iSquare, orb, overlap, densSqr, HH, Smat, Dmat, LRgammaAO)
 
-      !> class instance
+      !> Class instance
       type(RangeSepFunc), intent(inout) :: this
 
       !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
@@ -753,122 +767,93 @@ contains
       !> Orbital information.
       type(TOrbitals), intent(in) :: orb
 
+      !> Square overlap matrix (lower triangle)
       real(dp), intent(in) :: overlap(:,:)
+
+      !> Square density matrix (lower triangle)
       real(dp), intent(in) :: densSqr(:,:)
 
+      !> Hamiltonian matrix
       real(dp), intent(inout) :: HH(:,:)
 
+      !> Square density matrix
       real(dp), intent(out) :: Smat(:,:)
+
+      !> Square density matrix
       real(dp), intent(out) :: Dmat(:,:)
+
+      !> gamma between orbitals of the system
       real(dp), intent(out) :: LRgammaAO(:,:)
 
-      integer, allocatable :: get_iat(:)
-
-      integer :: nAtom, nAOs
-      integer :: iAt, G1, G2, mu, nu
+      integer :: nAtom, nOrbs
+      integer :: iAt, jAt
 
       nAtom = size(orb%nOrbAtom,dim=1)
-      nAOs = size(overlap,dim=1)
+      nOrbs = size(overlap,dim=1)
 
-      allocate(get_iat(nAOs))
-
-      ! Symmetrize Hamiltonian, overlap, density matrices
+      ! Symmetrize Hamiltonian, overlap and density matrices
       call symmetrizeSquareMatrix(HH)
-      Smat(:,:) = overlap(:,:)
+      Smat(:,:) = overlap
       call symmetrizeSquareMatrix(Smat)
-      Dmat(:,:) = densSqr(:,:)
+      Dmat(:,:) = densSqr
       call symmetrizeSquareMatrix(Dmat)
-
-      do mu = 1, nAOs
-        do iAt = 1, nAtom
-          if (mu > iSquare(iAt)-1 .and. mu <= iSquare(iAt+1)-1) then
-            get_iat(mu) = iAt
-          end if
-        end do
-      end do
 
       ! Get long-range gamma variable
       LRgammaAO(:,:) = 0.0_dp
-      do mu = 1, nAOs
-        do nu = mu, nAOs
-          ! Find proper atom index
-          G1 = get_iat(mu)
-          G2 = get_iat(nu)
-          LRgammaAO(nu,mu) = this%lrGammaEval(G2,G1)
-          if (nu /= mu) LRgammaAO(mu,nu) = LRgammaAO(nu,mu)
+      do iAt = 1, nAtom
+        do jAt = 1, nAtom
+          LRgammaAO(iSquare(jAt):iSquare(jAt+1)-1,iSquare(iAt):iSquare(iAt+1)-1) =&
+              & this%lrGammaEval(jAt,iAt)
         end do
       end do
 
     end subroutine allocateAndInit
 
+
+    !> Actual evaluation of the hamiltonian
     subroutine evaluateHamiltonian(this, Smat, Dmat, LRgammaAO, Hlr)
 
       !> class instance
       type(RangeSepFunc), intent(inout) :: this
 
+      !> Overlap matrix
       real(dp), intent(in) :: Smat(:,:)
+
+      !> Density matrix
       real(dp), intent(in) :: Dmat(:,:)
+
+      !> gamma matrix between orbitals
       real(dp), intent(in) :: LRgammaAO(:,:)
 
+      !> Hamiltonian contribution
       real(dp), intent(out) :: Hlr(:,:)
 
       real(dp), allocatable :: Hmat(:,:)
-      real(dp), allocatable :: tmp_mat(:,:)
+      real(dp), allocatable :: tmpMat(:,:)
 
-      integer :: nAOs, mu, nu
+      integer :: nOrbs, mu, nu
 
-      nAOs = size(overlap,dim=1)
+      nOrbs = size(overlap,dim=1)
 
-      allocate(Hmat(nAOs,nAOs))
-      allocate(tmp_mat(nAOs,nAOs))
+      allocate(Hmat(nOrbs,nOrbs))
+      allocate(tmpMat(nOrbs,nOrbs))
 
-      Hlr(:,:) = 0.0_dp
+      call gemm(tmpMat, Smat, Dmat)
+      call gemm(Hlr, tmpMat, Smat)
+      Hlr(:,:) = Hlr * LRGammaAO
 
-      tmp_mat(:,:) = 0.0_dp
-      call gemm(tmp_mat,Smat,Dmat,1.0_dp,0.0_dp,'N','N')
-      Hmat(:,:) = 0.0_dp
-      call gemm(Hmat,tmp_mat,Smat,1.0_dp,0.0_dp,'N','N')
-      do mu = 1, nAOs
-        do nu = mu, nAOs
-          Hmat(mu,nu) = Hmat(mu,nu) * LRgammaAO(mu,nu)
-          if (mu /= nu) Hmat(nu,mu) = Hmat(mu,nu)
-        end do
-      end do
-      Hlr(:,:) = Hlr(:,:) + Hmat(:,:)
+      tmpMat(:,:) = LRgammaAO * tmpMat
+      call gemm(Hlr, tmpMat, Smat, alpha = 1.0_dp, beta = 1.0_dp)
 
-      do mu = 1, nAOs
-        do nu = 1, nAOs
-          tmp_mat(mu,nu) = LRgammaAO(mu,nu) * tmp_mat(mu,nu)
-        end do
-      end do
-      Hmat(:,:) = 0.0_dp
-      call gemm(Hmat,tmp_mat,Smat,1.0_dp,0.0_dp,'N','N')
-      Hlr(:,:) = Hlr(:,:) + Hmat(:,:)
+      Hmat(:,:) = Dmat * LRgammaAO
+      call gemm(tmpMat, Smat, Hmat)
+      call gemm(Hlr, tmpMat, Smat, alpha = 1.0_dp, beta = 1.0_dp)
 
-      do mu = 1, nAOs
-        do nu = mu, nAOs
-          Hmat(mu,nu) = Dmat(mu,nu) * LRgammaAO(mu,nu)
-          if (mu /= nu) Hmat(nu,mu) = Hmat(mu,nu)
-        end do
-      end do
-      tmp_mat(:,:) = 0.0_dp
-      call gemm(tmp_mat,Smat,Hmat,1.0_dp,0.0_dp,'N','N')
-      Hmat(:,:) = 0.0_dp
-      call gemm(Hmat,tmp_mat,Smat,1.0_dp,0.0_dp,'N','N')
-      Hlr(:,:) = Hlr(:,:) + Hmat(:,:)
+      call gemm(tmpMat, Dmat, Smat)
+      tmpMat(:,:) = tmpMat * LRgammaAO
+      call gemm(Hlr, Smat, tmpMat, alpha = 1.0_dp, beta = 1.0_dp)
 
-      tmp_mat(:,:) = 0.0_dp
-      call gemm(tmp_mat,Dmat,Smat,1.0_dp,0.0_dp,'N','N')
-      do mu = 1, nAOs
-        do nu = 1, nAOs
-          tmp_mat(mu,nu) = tmp_mat(mu,nu) * LRgammaAO(mu,nu)
-        end do
-      end do
-      Hmat(:,:) = 0.0_dp
-      call gemm(Hmat,Smat,tmp_mat,1.0_dp,0.0_dp,'N','N')
-      Hlr(:,:) = Hlr(:,:) + Hmat(:,:)
-
-      Hlr(:,:) = -0.125_dp * this%nSpin * Hlr(:,:)
+      Hlr(:,:) = -0.125_dp * this%nSpinChannels * Hlr
 
     end subroutine evaluateHamiltonian
 
@@ -896,10 +881,11 @@ contains
 
     !> matrix to symmetrize
     real(dp), intent(inout) :: matrix(:,:)
+
     integer :: ii, matSize
 
     matSize = size(matrix, dim = 1)
-    do ii = 1, matSize
+    do ii = 1, matSize -1
       matrix(ii, ii + 1 : matSize) = matrix(ii + 1 : matSize, ii)
     end do
 
@@ -1313,7 +1299,7 @@ contains
       end do loopC
     end do loopK
 
-    gradients(:,:) = gradients - 0.25_dp * this%nSpin * tmpderiv
+    gradients(:,:) = gradients - 0.25_dp * this%nSpinChannels * tmpderiv
 
     deallocate(tmpOvr, tmpRho, gammaPrimeTmp, tmpderiv)
 
