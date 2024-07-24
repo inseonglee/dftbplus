@@ -285,6 +285,9 @@ module dftbp_reks_reksvar
     !> charge per atomic shell for each microstate
     real(dp), allocatable :: chargePerShellL(:,:,:,:)
 
+    !> Mulliken block charges for each microstate
+    real(dp), allocatable :: qBlockL(:,:,:,:,:)
+
     !> Net (on-site only contributions) charge per atom for each microstate
     real(dp), allocatable :: qNetAtomL(:,:)
 
@@ -731,6 +734,10 @@ module dftbp_reks_reksvar
     allocate(this%qOutputL(mOrb,nAtom,nSpin,Lmax))
     allocate(this%chargePerShellL(mShell,nAtom,nSpin,Lmax))
 
+    if (this%isOnsite) then
+      allocate(this%qBlockL(mOrb,mOrb,nAtom,nSpin,Lmax))
+    end if
+
     if (this%isQNetAllocated) then
       allocate(this%qNetAtomL(nAtom,Lmax))
     end if
@@ -924,6 +931,10 @@ module dftbp_reks_reksvar
 
     this%qOutputL(:,:,:,:) = 0.0_dp
     this%chargePerShellL(:,:,:,:) = 0.0_dp
+
+    if (this%isOnsite) then
+      this%qBlockL(:,:,:,:,:) = 0.0_dp
+    end if
 
     if (this%isQNetAllocated) then
       this%qNetAtomL(:,:) = 0.0_dp

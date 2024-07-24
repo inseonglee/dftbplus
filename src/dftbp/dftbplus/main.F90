@@ -1260,7 +1260,7 @@ contains
         @:PROPAGATE_ERROR(errStatus)
         call getMullikenPopulationL(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
             & this%img2CentCell, this%iSparseStart, this%orb, this%rhoPrim, this%ints,&
-            & this%iRhoPrim, this%qBlockOut, this%qiBlockOut, this%qNetAtom, this%reks)
+            & this%iRhoPrim, this%qiBlockOut, this%qNetAtom, this%reks)
 
         call getHamiltonianLandEnergyL(env, this%denseDesc, this%scc, this%tblite, this%orb,&
             & this%species, this%neighbourList, this%symNeighbourList, this%nNeighbourSK,&
@@ -7895,8 +7895,7 @@ contains
 
   !> Calculate Mulliken population for each microstate from sparse density matrix.
   subroutine getMullikenPopulationL(env, denseDesc, neighbourList, nNeighbourSK, &
-      & img2CentCell, iSparseStart, orb, rhoPrim, ints, iRhoPrim, qBlock, &
-      & qiBlock, qNetAtom, reks)
+      & img2CentCell, iSparseStart, orb, rhoPrim, ints, iRhoPrim, qiBlock, qNetAtom, reks)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -7928,9 +7927,6 @@ contains
     !> Imaginary part of density matrix
     real(dp), intent(in), allocatable :: iRhoPrim(:,:)
 
-    !> Dual atomic charges
-    real(dp), intent(inout), allocatable :: qBlock(:,:,:,:)
-
     !> Imaginary part of dual atomic charges
     real(dp), intent(inout), allocatable :: qiBlock(:,:,:,:)
 
@@ -7956,9 +7952,13 @@ contains
 
       ! reks%qOutputL & reks%qNetAtomL has (my_qm) component
       reks%qOutputL(:,:,:,iL) = 0.0_dp
+      if (reks%isOnsite) then
+        ! reks%qBlockL has (my_qm) component
+        reks%qBlockL(:,:,:,:,iL) = 0.0_dp
+      end if
       call getMullikenPopulation(env, rhoPrim, ints, orb, neighbourList, nNeighbourSK, &
           & img2CentCell, iSparseStart, reks%qOutputL(:,:,:,iL), iRhoPrim=iRhoPrim, &
-          & qBlock=qBlock, qiBlock=qiBlock, qNetAtom=qNetAtom)
+          & qBlock=reks%qBlockL(:,:,:,:,iL), qiBlock=qiBlock, qNetAtom=qNetAtom)
 
       ! Get correct net charge per atom
       ! Note that qNetAtomL does not have spin dependency so it does not
@@ -7979,6 +7979,10 @@ contains
 
     ! reks%qOutputL has (qm) component
     call qmExpandL(reks%qOutputL, reks%Lpaired)
+    if (reks%isOnsite) then
+      ! reks%qBlockL has (qm) component
+      call qmExpandL(reks%qBlockL, reks%Lpaired)
+    end if
 
   end subroutine getMullikenPopulationL
 
