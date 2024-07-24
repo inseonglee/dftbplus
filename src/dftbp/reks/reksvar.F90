@@ -223,8 +223,14 @@ module dftbp_reks_reksvar
     !> Third order DFTB
     logical :: t3rd
 
+    !> Whether to run a onsite-corrected calculation
+    logical :: isOnsite
+
     !> Whether to run a range separated calculation
     logical :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical :: isRS_OnsCorr
 
     !> Whether to run a dispersion calculation
     logical :: isDispersion
@@ -545,8 +551,9 @@ module dftbp_reks_reksvar
   contains
 
   !> Initialize REKS data from REKS input
-  subroutine REKS_init(this, inp, orb, spinW, nSpin, nEl, nChrgs, extChrg, blurWidths, &
-      & t3rd, isHybridXc, isDispersion, isQNetAllocated, tForces, tPeriodic, tStress, tDipole)
+  subroutine REKS_init(this, inp, orb, spinW, onSiteElements, nSpin, nEl,&
+      & nChrgs, extChrg, blurWidths, t3rd, isHybridXc, isDispersion,&
+      & isQNetAllocated, tForces, tPeriodic, tStress, tDipole, isRS_OnsCorr)
 
     !> data type for REKS
     type(TReksCalc), intent(out) :: this
@@ -559,6 +566,9 @@ module dftbp_reks_reksvar
 
     !> Spin W values
     real(dp), intent(inout) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), allocatable, intent(in) :: onSiteElements(:,:,:,:)
 
     !> Number of spin components, 1 is unpolarised, 2 is polarised, 4 is noncolinear / spin-orbit
     integer, intent(inout) :: nSpin
@@ -598,6 +608,9 @@ module dftbp_reks_reksvar
 
     !> calculate an electric dipole?
     logical, intent(inout) :: tDipole
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     integer :: nOrb, mOrb, mShell, nOrbHalf
     integer :: nstates, SAstates, nstHalf
@@ -663,7 +676,9 @@ module dftbp_reks_reksvar
     nType = size(inp%Tuning,dim=1)
 
     this%t3rd = t3rd
+    this%isOnsite = allocated(onSiteElements)
     this%isHybridXc = isHybridXc
+    this%isRS_OnsCorr = isRS_OnsCorr
     this%isDispersion = isDispersion
     this%isQNetAllocated = isQNetAllocated
 

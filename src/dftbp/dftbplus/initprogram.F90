@@ -3035,16 +3035,16 @@ contains
     end if
 
     if (allocated(this%reks)) then
-      call checkReksConsistency(input%ctrl%reksInp, this%solvation, this%onSiteElements,&
-          & this%kPoint, this%nEl, this%nKPoint, this%tSccCalc, this%tSpin, this%tSpinOrbit,&
-          & allocated(this%dftbU), this%isExtField, this%isLinResp, this%tPeriodic, this%tLatOpt,&
-          & this%tReadChrg, this%tPoisson, input%ctrl%tShellResolved)
+      call checkReksConsistency(input%ctrl%reksInp, this%solvation, this%kPoint, this%nEl,&
+          & this%nKPoint, this%tSccCalc, this%tSpin, this%tSpinOrbit, allocated(this%dftbU),&
+          & this%isExtField, this%isLinResp, this%tPeriodic, this%tLatOpt,  this%tReadChrg,&
+          & this%tPoisson, input%ctrl%tShellResolved)
       ! here, this%nSpin changes to 2 for REKS
       call TReksCalc_init(this%reks, input%ctrl%reksInp, this%electronicSolver, this%orb,&
-          & this%spinW, this%nEl, input%ctrl%extChrg, input%ctrl%extChrgBlurWidth,&
+          & this%spinW, this%onSiteElements, this%nEl, input%ctrl%extChrg, input%ctrl%extChrgBlurWidth,&
           & this%hamiltonianType, this%nSpin, this%nExtChrg, this%t3rd.or.this%t3rdFull,&
           & this%isHybridXc, allocated(this%dispersion), this%isQNetAllocated, this%tForces,&
-          & this%tPeriodic, this%tStress, this%tDipole)
+          & this%tPeriodic, this%tStress, this%tDipole, this%isRS_OnsCorr)
     end if
 
     call this%initDetArrays(nLocalRows, nLocalCols)
@@ -6400,11 +6400,6 @@ contains
           & implemented for solvation")
     end if
 
-    if (allocated(reks)) then
-      call error("Onsite correction with range separated calculations not currently&
-          & implemented for REKS")
-    end if
-
   end subroutine ensureRangeSepOnsCorrReqs
 
 
@@ -6467,8 +6462,8 @@ contains
   end subroutine initPlumed
 
 
-  subroutine checkReksConsistency(reksInp, solvation, onSiteElements, kPoint, nEl, nKPoint,&
-      & tSccCalc, tSpin, tSpinOrbit, isDftbU, isExtField, isLinResp, tPeriodic, tLatOpt, tReadChrg,&
+  subroutine checkReksConsistency(reksInp, solvation, kPoint, nEl, nKPoint, tSccCalc,&
+      & tSpin, tSpinOrbit, isDftbU, isExtField, isLinResp, tPeriodic, tLatOpt, tReadChrg,&
       & tPoisson, isShellResolved)
 
     !> Data type for REKS input
@@ -6476,9 +6471,6 @@ contains
 
     !> Solvation data and calculations
     class(TSolvation), allocatable, intent(in) :: solvation
-
-    !> Correction to energy from on-site matrix elements
-    real(dp), allocatable, intent(in) :: onSiteElements(:,:,:,:)
 
     !> The k-points
     real(dp), intent(in) :: kPoint(:,:)
@@ -6539,8 +6531,6 @@ contains
           & embedding is implemented")
     else if (isLinResp) then
       call error("REKS is not compatible with standard linear response excitation")
-    else if (allocated(onSiteElements)) then
-      call error("REKS is not compatible with onsite corrections")
     end if
 
     if (allocated(solvation)) then
@@ -6614,9 +6604,9 @@ contains
   end subroutine densityMatrixSource
 
 
-  subroutine TReksCalc_init(reks, reksInp, electronicSolver, orb, spinW, nEl, extChrg, blurWidths,&
-      & hamiltonianType, nSpin, nExtChrg, is3rd, isHybridXc, isDispersion, isQNetAllocated,&
-      & tForces, tPeriodic, tStress, tDipole)
+  subroutine TReksCalc_init(reks, reksInp, electronicSolver, orb, spinW, onSiteElements,&
+      & nEl, extChrg, blurWidths, hamiltonianType, nSpin, nExtChrg, is3rd, isHybridXc,&
+      & isDispersion, isQNetAllocated, tForces, tPeriodic, tStress, tDipole, isRS_OnsCorr)
 
     !> Data type for REKS
     type(TReksCalc), intent(out) :: reks
@@ -6632,6 +6622,9 @@ contains
 
     !> Spin W values
     real(dp), intent(inout) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), allocatable, intent(in) :: onSiteElements(:,:,:,:)
 
     !> Nr. of electrons
     real(dp), intent(in) :: nEl(:)
@@ -6675,6 +6668,9 @@ contains
     !> Calculate an electric dipole?
     logical, intent(inout) :: tDipole
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     ! Condition for Hamiltonian types
     select case(hamiltonianType)
     case default
@@ -6689,9 +6685,9 @@ contains
         call error("REKS is not compatible with OnlyTransport-solver")
       case(electronicSolverTypes%qr, electronicSolverTypes%divideandconquer,&
           & electronicSolverTypes%relativelyrobust)
-        call REKS_init(reks, reksInp, orb, spinW, nSpin, nEl(1), nExtChrg, extChrg,&
-            & blurWidths, is3rd, isHybridXc, isDispersion, isQNetAllocated, tForces,&
-            & tPeriodic, tStress, tDipole)
+        call REKS_init(reks, reksInp, orb, spinW, onSiteElements, nSpin, nEl(1), nExtChrg,&
+            & extChrg, blurWidths, is3rd, isHybridXc, isDispersion, isQNetAllocated, tForces,&
+            & tPeriodic, tStress, tDipole, isRS_OnsCorr)
       case(electronicSolverTypes%magma_gvd)
         call error("REKS is not compatible with MAGMA GPU solver")
       case(electronicSolverTypes%omm, electronicSolverTypes%pexsi, electronicSolverTypes%ntpoly,&
