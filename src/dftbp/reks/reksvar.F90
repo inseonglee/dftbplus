@@ -335,8 +335,14 @@ module dftbp_reks_reksvar
     !> 3rd order SCC energy for each microstate
     real(dp), allocatable :: enL3rd(:)
 
+    !> onsite-correction energy for each microstate
+    real(dp), allocatable :: enLonSite(:)
+
     !> Long-range corrected energy for each microstate
     real(dp), allocatable :: enLfock(:)
+
+    !> Long-range corrected with onsite-corrected energy for each microstate
+    real(dp), allocatable :: enLfockOnSite(:)
 
     !> charge-dependent dispersion energy for each microstate
     real(dp), allocatable :: enLdisp(:)
@@ -765,8 +771,16 @@ module dftbp_reks_reksvar
       allocate(this%enL3rd(Lmax))
     end if
 
+    if (this%isOnsite) then
+      allocate(this%enLonSite(Lmax))
+    end if
+
     if (this%isHybridXc) then
       allocate(this%enLfock(Lmax))
+    end if
+
+    if (this%isRS_OnsCorr) then
+      allocate(this%enLfockOnSite(Lmax))
     end if
 
     if (this%isDispersion) then
@@ -963,8 +977,16 @@ module dftbp_reks_reksvar
       this%enL3rd(:) = 0.0_dp
     end if
 
+    if (this%isOnsite) then
+      this%enLonSite(:) = 0.0_dp
+    end if
+
     if (this%isHybridXc) then
       this%enLfock(:) = 0.0_dp
+    end if
+
+    if (this%isRS_OnsCorr) then
+      this%enLfockOnSite(:) = 0.0_dp
     end if
 
     if (this%isDispersion) then

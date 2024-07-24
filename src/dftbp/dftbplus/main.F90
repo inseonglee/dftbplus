@@ -1268,10 +1268,9 @@ contains
             & this%extPressure, this%dftbEnergy(1), this%q0, this%iAtInCentralRegion,&
             & this%solvation, this%thirdOrd, this%potential, this%hybridXc, this%rsOnsCorr,&
             & this%nNeighbourCam, this%nNeighbourCamSym, this%tDualSpinOrbit, this%xi, this%isExtField,&
-            & this%isXlbomd, this%dftbU, this%dftbEnergy(1)%TS, this%qDepExtPot, this%qBlockOut,&
-            & this%qiBlockOut, this%tFixEf, this%Ef, this%rhoPrim, this%onSiteElements, this%dispersion,&
-            & tConverged, this%species0, this%referenceN0, this%qNetAtom, this%multipoleOut, this%reks,&
-            & errStatus)
+            & this%isXlbomd, this%dftbU, this%dftbEnergy(1)%TS, this%qDepExtPot, this%qiBlockOut,&
+            & this%tFixEf, this%Ef, this%rhoPrim, this%onSiteElements, this%dispersion, tConverged,&
+            & this%species0, this%referenceN0, this%qNetAtom, this%multipoleOut, this%reks, errStatus)
         @:PROPAGATE_ERROR(errStatus)
         call optimizeFONsAndWeights(this%eigvecsReal, this%filling, this%dftbEnergy(1), this%reks)
 
@@ -7993,7 +7992,7 @@ contains
       & neighbourList, symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, H0, ints, spinW,&
       & cellVol, extPressure, energy, q0, iAtInCentralRegion, solvation, thirdOrd, potential,&
       & hybridXc, rsOnsCorr, nNeighbourCam, nNeighbourCamSym, tDualSpinOrbit, xi, isExtField,&
-      & isXlbomd, dftbU, TS, qDepExtPot, qBlock, qiBlock, tFixEf, Ef, rhoPrim, onSiteElements,&
+      & isXlbomd, dftbU, TS, qDepExtPot, qiBlock, tFixEf, Ef, rhoPrim, onSiteElements,&
       & dispersion, tConverged, species0, referenceN0, qNetAtom, multipole, reks, errStatus)
 
     !> Environment settings
@@ -8095,9 +8094,6 @@ contains
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
 
-    !> Block (dual) atomic populations
-    real(dp), intent(in), allocatable :: qBlock(:,:,:,:)
-
     !> Imaginary part of block atomic populations
     real(dp), intent(in), allocatable :: qiBlock(:,:,:,:)
 
@@ -8140,6 +8136,7 @@ contains
 
     real(dp), allocatable :: tmpHamSp(:,:)
     real(dp), allocatable :: tmpEn(:)
+    real(dp), allocatable :: tmpEnOc(:)
 
     integer, pointer :: pSpecies0(:)
     integer :: sparseSize, nAtom, nSpin, iL, tmpL, rsL
@@ -8152,6 +8149,9 @@ contains
     allocate(tmpHamSp(sparseSize,1))
     if (reks%isHybridXc) then
       allocate(tmpEn(reks%Lmax))
+    end if
+    if (reks%isRS_OnsCorr) then
+      allocate(tmpEnOc(reks%Lmax))
     end if
 
     ! Calculate contribution to Hamiltonian except hybrid xc-functional part
@@ -8166,6 +8166,10 @@ contains
       call addChargePotentials(env, sccCalc, tblite, .true., reks%qOutputL(:,:,:,iL), q0,&
           & reks%chargePerShellL(:,:,:,iL), orb, multipole, species, neighbourList,&
           & img2CentCell, spinW, solvation, thirdOrd, dispersion, potential)
+      if (reks%isOnsite) then
+        call addOnsShift(potential%intBlock, potential%iOrbitalBlock,&
+            & reks%qBlock(:,:,:,:,iL), qiBlock, onSiteElements, species, orb, q0)
+      end if
 
       ! reks%intShellL, reks%intBlockL has (qm) component
       reks%intShellL(:,:,:,iL) = potential%intShell
@@ -8218,6 +8222,7 @@ contains
     else
       ! reks%hamSqrL has (my_ud) component
       call qm2udL(reks%hamSqrL, reks%Lpaired)
+      tmpEn(:) = 0.0_dp
       do iL = 1, reks%Lmax
         ! Add hybrid xc-functional contribution to Hamiltonian
       #:if WITH_SCALAPACK
@@ -8231,6 +8236,18 @@ contains
         @:PROPAGATE_ERROR(errStatus)
         ! Calculate the Fock-type exchange energy
         call hybridXc%getHybridEnergy_real(env, tmpEn(iL))
+      end do
+    end if
+
+    ! To include lrOC contributions, LC functional is essential
+    if (reks%isRS_OnsCorr) then
+      tmpEnOc(:) = 0.0_dp
+      do iL = 1, reks%Lmax
+        ! Add onsite correction originated from range-separated functional
+        call rsOnsCorr%addLrOcHamiltonian(env, reks%overSqr, reks%deltaRhoSqrL(:,:,1,iL),&
+            & reks%hamSqrL(:,:,1,iL))
+        ! Calculate the long-range exchange energy with onsite correction for up spin
+        call rsOnsCorr%addLrOcEnergy(tmpEnOc(iL))
       end do
     end if
 
@@ -8254,6 +8271,9 @@ contains
       ! Set the long-range corrected energy contribution
       if (reks%isHybridXc) then
         energy%Efock = tmpEn(iL) + tmpEn(rsL)
+      end if
+      if (reks%isRS_OnsCorr) then
+        energy%EfockOnSite = tmpEnOc(iL) + tmpEnOc(rsL)
       end if
 
       if (reks%tForces) then
@@ -8282,8 +8302,8 @@ contains
           & reks%chargePerShellL(:,:,:,iL), multipole, species, isExtField, isXlbomd, dftbU,&
           & tDualSpinOrbit, rhoPrim, H0, orb, neighbourList, nNeighbourSk, img2CentCell,&
           & iSparseStart, cellVol, extPressure, TS, potential, energy, thirdOrd, solvation,&
-          & hybridXc, rsOnsCorr, reks, qDepExtPot, qBlock, qiBlock, xi, iAtInCentralRegion,&
-          & tFixEf, Ef, .true., onSiteElements, errStatus)
+          & hybridXc, rsOnsCorr, reks, qDepExtPot, reks%qBlockL(:,:,:,:,iL), qiBlock, xi,&
+          & iAtInCentralRegion, tFixEf, Ef, .true., onSiteElements, errStatus)
       @:PROPAGATE_ERROR(errStatus)
 
       if (allocated(dispersion)) then
@@ -8309,8 +8329,14 @@ contains
       if (allocated(thirdOrd)) then
         reks%enL3rd(iL) = energy%e3rd
       end if
+      if (reks%isOnsite) then
+        reks%enLonSite(iL) = energy%eOnSite
+      end if
       if (reks%isHybridXc) then
         reks%enLfock(iL) = energy%Efock
+      end if
+      if (reks%isRS_OnsCorr) then
+        reks%enLfockOnSite(iL) = energy%EfockOnSite
       end if
       if (reks%isDispersion) then
         reks%enLdisp(iL) = energy%Edisp
