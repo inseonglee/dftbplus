@@ -1336,11 +1336,12 @@ contains
             call writeReksDetailedOut1(this%fdDetailedOut%unit, this%nGeoSteps, iGeoStep,&
                 & this%tMD, this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep, iSccIter,&
                 & this%dftbEnergy(1), diffElec, sccErrorQ, this%indMovedAtom, this%pCoord0Out,&
-                & this%q0, this%qOutput, this%orb, this%species, this%tPrintMulliken,&
+                & this%q0, this%qOutput, this%qBlockOut, this%orb, this%species, this%tPrintMulliken,&
                 & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion,&
                 & this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
                 & this%iAtInCentralRegion, this%electronicSolver, this%reks,&
-                & allocated(this%thirdOrd), this%isHybridXc, qNetAtom=this%qNetAtom)
+                & allocated(this%thirdOrd), allocated(this%onSiteElements), this%isHybridXc,&
+                & this%isRS_OnsCorr, qNetAtom=this%qNetAtom)
           end if
           if (this%tWriteBandDat) then
             if (this%tMD .and. iGeoStep /= 0 .and. tWriteRestart) then

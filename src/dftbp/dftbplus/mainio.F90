@@ -5528,11 +5528,12 @@ contains
 
 
   !> First group of data to go to detailed.out
-  subroutine writeReksDetailedOut1(fd, nGeoSteps, iGeoStep, tMD, tDerivs,&
-      & tCoordOpt, tLatOpt, iLatGeoStep, iSccIter, energy, diffElec, sccErrorQ,&
-      & indMovedAtom, coord0Out, q0, qOutput, orb, species, tPrintMulliken, pressure,&
+  subroutine writeReksDetailedOut1(fd, nGeoSteps, iGeoStep, tMD, tDerivs, tCoordOpt,&
+      & tLatOpt, iLatGeoStep, iSccIter, energy, diffElec, sccErrorQ, indMovedAtom,&
+      & coord0Out, q0, qOutput, qBlock, orb, species, tPrintMulliken, pressure,&
       & cellVol, tAtomicEnergy, dispersion, tPeriodic, tScc, invLatVec, kPoints,&
-      & iAtInCentralRegion, electronicSolver, reks, t3rd, isHybridXc, qNetAtom)
+      & iAtInCentralRegion, electronicSolver, reks, t3rd, tOnSite, isHybridXc,&
+      & isRS_OnsCorr, qNetAtom)
 
     !> File ID
     integer, intent(in) :: fd
@@ -5582,6 +5583,9 @@ contains
     !> Output atomic charges (if SCC)
     real(dp), intent(in) :: qOutput(:,:,:)
 
+    !> Output Mulliken block charges
+    real(dp), intent(in) :: qBlock(:,:,:,:)
+
     !> Type containing atomic orbital information
     type(TOrbitals), intent(in) :: orb
 
@@ -5624,8 +5628,14 @@ contains
     !> Third order DFTB
     logical, intent(in) :: t3rd
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: tOnSite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> Onsite mulliken population per atom
     real(dp), intent(in), optional :: qNetAtom(:)
@@ -5633,8 +5643,9 @@ contains
     !> data type for REKS
     type(TReksCalc), intent(in) :: reks
 
+    real(dp), allocatable :: ev(:,:), ei(:)
     integer :: nAtom, nKPoint, nMovedAtom
-    integer :: ang, iAt, iSpin, iK, iSp, iSh, ii, kk
+    integer :: ang, iAt, iSpin, iK, iSp, iSh, iOrb, ii, kk
     character(sc), allocatable :: shellNamesTmp(:)
     character(lc) :: strTmp
 
@@ -5786,6 +5797,28 @@ contains
           deallocate(shellNamesTmp)
         end do
         write(fd, *)
+        if (tOnsite) then
+          write(fd, "(3A)") 'Block populations (', trim(spinName(iSpin)), ')'
+          do ii = 1, size(iAtInCentralRegion)
+            iAt = iAtInCentralRegion(ii)
+            iSp = species(iAt)
+            write(fd, "(A, 1X, I0)") 'Atom', iAt
+            do iOrb = 1, orb%nOrbSpecies(iSp)
+              write(fd, "(16F8.4)") qBlock(1:orb%nOrbSpecies(iSp), iOrb, iAt, iSpin)
+            end do
+            if (orb%nOrbSpecies(iSp) > 1) then
+              allocate(ei(orb%nOrbSpecies(iSp)))
+              ev = qBlock(:orb%nOrbSpecies(iSp), :orb%nOrbSpecies(iSp), iAt, iSpin)
+              call heev(ev, ei, 'l', 'v')
+              write(fd,*)'Eigen-decomposition'
+              do iOrb = 1, orb%nOrbSpecies(iSp)
+                write(fd, "(F8.4,A,16F8.4)") ei(iOrb),':',ev(:, iOrb)
+              end do
+              deallocate(ev, ei)
+            end if
+          end do
+          write(fd, *)
+        end if
       end if
     end do lpSpinPrint2_REKS
 
@@ -5806,8 +5839,14 @@ contains
       if (t3rd) then
         write(fd,format2U) 'Energy 3rd', energy%e3rd, 'H', energy%e3rd*Hartree__eV, 'eV'
       end if
+      if (tOnsite) then
+        write (fd,format2U) 'Energy onsite', energy%eOnSite, 'H', energy%eOnSite*Hartree__eV, 'eV'
+      end if
       if (isHybridXc) then
         write(fd, format2U) 'Energy Fock', energy%Efock, 'H', energy%Efock * Hartree__eV, 'eV'
+      end if
+      if (isRS_OnsCorr) then
+        write (fd,format2U) 'Energy Fock onsite', energy%EfockOnsite, 'H', energy%EfockOnsite*Hartree__eV, 'eV'
       end if
     end if
 

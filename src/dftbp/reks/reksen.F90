@@ -409,15 +409,21 @@ module dftbp_reks_reksen
       if (this%t3rd) then
         energy%e3rd = this%enL3rd(this%Lstate)
       end if
+      if (this%isOnsite) then
+        energy%eOnSite = this%enLonsite(this%Lstate)
+      end if
       if (this%isHybridXc) then
         energy%Efock = this%enLfock(this%Lstate)
+      end if
+      if (this%isRS_OnsCorr) then
+        energy%EfockOnSite = this%enLfockOnsite(this%Lstate)
       end if
       if (this%isDispersion) then
         energy%Edisp = this%enLdisp(this%Lstate)
       end if
 
       energy%Eelec = energy%EnonSCC + energy%Escc + energy%Espin + &
-          & energy%e3rd + energy%Efock
+          & energy%e3rd + energy%eOnSite + energy%Efock + energy%EfockOnsite
       energy%Etotal = energy%Eelec + energy%Erep + energy%Edisp
       energy%Eexcited = 0.0_dp
 

@@ -224,6 +224,8 @@ module dftbp_reks_reksinterface
       @:PROPAGATE_ERROR(errStatus)
 
       if (this%tTDP) then
+        ! TODO : Only Mulliken term is considered for dipole integral at the moment even though
+        !        the onsite integrals are included during SCC iteration
         call getDipoleIntegral(coord0, this%overSqr, this%getAtomIndex, dipoleInt)
         ! Get the transition dipole moment between states
         ! For (SI-)SA-REKS dipole moment requires gradient info.
