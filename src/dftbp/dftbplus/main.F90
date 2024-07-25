@@ -1303,9 +1303,9 @@ contains
               & this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
               & this%reks)
         else
-          call getReksNextInputCharges(this%qInput, this%qOutput, this%qDiff, sccErrorQ,&
-              & this%sccTol, tConverged, iSccIter, this%minSccIter, this%maxSccIter, iGeoStep,&
-              & tStopScc, this%eigvecsReal, this%reks)
+          call getReksNextInputCharges(this%qInput, this%qOutput, this%qDiff, this%qBlockIn,&
+              & this%qBlockOut, this%qBlockDiff, sccErrorQ, this%sccTol, tConverged, iSccIter,&
+              & this%minSccIter, this%maxSccIter, iGeoStep, tStopScc, this%eigvecsReal, this%reks)
         end if
 
         call getSccInfo(iSccIter, this%dftbEnergy(1)%Eavg, Eold, diffElec)
@@ -8392,8 +8392,9 @@ contains
 
 
   !> Returns input charges for next SCC iteration.
-  subroutine getReksNextInputCharges(qInput, qOutput, qDiff, sccErrorQ, sccTol, tConverged,&
-      & iSccIter, minSccIter, maxSccIter, iGeoStep, tStopScc, eigvecs, reks)
+  subroutine getReksNextInputCharges(qInput, qOutput, qDiff, qBlockIn, qBlockOut,&
+      & qBlockDiff, sccErrorQ, sccTol, tConverged, iSccIter, minSccIter, maxSccIter,&
+      & iGeoStep, tStopScc, eigvecs, reks)
 
     !> Input charges (for potentials)
     real(dp), intent(inout) :: qInput(:, :, :)
@@ -8403,6 +8404,15 @@ contains
 
     !> Charge differences between input and output charges
     real(dp), intent(inout) :: qDiff(:,:,:)
+
+    !> input Mulliken block charges (diagonal part == Mulliken charges)
+    real(dp), allocatable, intent(inout) :: qBlockIn(:, :, :, :)
+
+    !> Output Mulliken block charges
+    real(dp), allocatable, intent(inout) :: qBlockOut(:, :, :, :)
+
+    !> block charge differences between input and output block charges
+    real(dp), allocatable, intent(inout) :: qBlockDiff(:, :, :, :)
 
     !> Self-consistency error
     real(dp), intent(out) :: sccErrorQ
@@ -8436,11 +8446,18 @@ contains
 
     qDiff(:,:,:) = qOutput - qInput
     sccErrorQ = maxval(abs(qDiff))
+    if (reks%isOnsite) then
+      qBlockDiff(:,:,:,:) = qBlockOut - qBlockIn
+      sccErrorQ = max(maxval(abs(qDiff)),maxval(abs(qBlockDiff)))
+    end if
 
     tConverged = (sccErrorQ < sccTol) &
         & .and. (iSccIter >= minSccIter .or. reks%tReadMO .or. iGeoStep > 0)
     if ((.not. tConverged) .and. (iSccIter /= maxSccIter .and. .not. tStopScc)) then
       qInput(:,:,:) = qOutput
+      if (reks%isOnsite) then
+        qBlockIn(:,:,:,:) = qBlockOut
+      end if
       call guessNewEigvecs(eigvecs(:,:,1), reks%eigvecsFock)
     end if
 

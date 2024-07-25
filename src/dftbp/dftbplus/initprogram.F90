@@ -688,6 +688,9 @@ module dftbp_dftbplus_initprogram
     !> Output Mulliken block charges
     real(dp), allocatable :: qBlockOut(:, :, :, :)
 
+    !> block charge differences between input and output block charges
+    real(dp), allocatable :: qBlockDiff(:, :, :, :)
+
     !> Imaginary part of input Mulliken block charges
     real(dp), allocatable :: qiBlockIn(:, :, :, :)
 
@@ -4319,16 +4322,20 @@ contains
     end if
 
     if (this%tMixBlockCharges) then
-      if (.not. allocated(this%reks)) then
-        if (.not. allocated(this%qBlockIn)) then
-          allocate(this%qBlockIn(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin))
-        endif
-        this%qBlockIn(:,:,:,:) = 0.0_dp
+      if (.not. allocated(this%qBlockIn)) then
+        allocate(this%qBlockIn(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin))
       endif
+      this%qBlockIn(:,:,:,:) = 0.0_dp
       if (.not. allocated(this%qBlockOut)) then
         allocate(this%qBlockOut(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin))
       endif
       this%qBlockOut(:,:,:,:) = 0.0_dp
+      if (allocated(this%reks)) then
+        if (.not. allocated(this%qBlockDiff)) then
+          allocate(this%qBlockDiff(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin))
+        endif
+        this%qBlockDiff(:,:,:,:) = 0.0_dp
+      endif
       if (this%tImHam) then
         if(.not. allocated(this%qiBlockIn)) then
           allocate(this%qiBlockIn(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin))
