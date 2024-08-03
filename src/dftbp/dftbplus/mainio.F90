@@ -5683,7 +5683,7 @@ contains
         write(fd,"(1X,A5,A20,A20,A13,A15)") "iSCC", "       reks energy  ", &
             & "      Diff energy   ", "      x_a    ", "   SCC error   "
         write(fd,"(I5,4x,F16.10,3x,F16.10,3x,F10.6,3x,F11.8)") &
-            & iSCCIter, energy%Etotal, diffElec, reks%FONs(1,1)*0.5_dp, sccErrorQ
+            & iSCCIter, energy%Eavg, diffElec, reks%FONs(1,1)*0.5_dp, sccErrorQ
         write(fd, "(A)") repeat("*", 92)
       case (reksTypes%ssr44)
         call error("SSR(4,4) is not implemented yet")
