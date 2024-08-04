@@ -243,11 +243,11 @@ module dftbp_reks_reksinterface
 
 
   !> Calculate SI-SA-REKS state gradient by solving CP-REKS equations
-  subroutine getReksGradients(env, denseDesc, sccCalc, hybridXc, dispersion, neighbourList,&
-      & nNeighbourSK, iSparseStart, img2CentCell, orb, nonSccDeriv, skHamCont, skOverCont,&
-      & repulsive, coord, coord0, species, q0, eigenvecs, chrgForces, over, spinW, derivs,&
-      & tWriteTagged, autotestTag, taggedWriter, this, errStatus, symNeighbourList,&
-      & nNeighbourCamSym)
+  subroutine getReksGradients(env, denseDesc, sccCalc, hybridXc, rsOnsCorr, dispersion,&
+      & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, nonSccDeriv, skHamCont,&
+      & skOverCont, repulsive, coord, coord0, species, q0, eigenvecs, chrgForces, over, spinW,&
+      & onSiteElements, derivs, tWriteTagged, autotestTag, taggedWriter, this, errStatus,&
+      & symNeighbourList, nNeighbourCamSym)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -260,6 +260,9 @@ module dftbp_reks_reksinterface
 
     !> Range separation contributions
     class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Onsite correction data with range-separated functional
+    type(TRangeSepOnsCorrFunc), allocatable, intent(inout) :: rsOnsCorr
 
     !> dispersion interactions
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
@@ -315,6 +318,9 @@ module dftbp_reks_reksinterface
     !> spin constants
     real(dp), intent(in) :: spinW(:,:,:)
 
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
     !> derivatives of energy wrt to atomic positions
     real(dp), intent(out) :: derivs(:,:)
 
@@ -353,7 +359,7 @@ module dftbp_reks_reksinterface
 
     call getHellmannFeynmanGradientL_(env, denseDesc, sccCalc, neighbourList, nNeighbourSK,&
         & iSparseStart, img2CentCell, orb, nonSccDeriv, skHamCont, skOverCont, repulsive, coord,&
-        & species, q0, dispersion, hybridXc, chrgForces, eigenvecs, derivs, this,&
+        & species, q0, dispersion, hybridXc, rsOnsCorr, chrgForces, eigenvecs, derivs, this,&
         & errStatus, symNeighbourList=symNeighbourList, nNeighbourCamSym=nNeighbourCamSym)
     @:PROPAGATE_ERROR(errStatus)
 
@@ -805,8 +811,8 @@ module dftbp_reks_reksinterface
   !> Calculate Hellmann-Feynman gradient term of each microstate in REKS
   subroutine getHellmannFeynmanGradientL_(env, denseDesc, sccCalc, neighbourList, nNeighbourSK,&
       & iSparseStart, img2CentCell, orb, nonSccDeriv, skHamCont, skOverCont, repulsive, coord,&
-      & species, q0, dispersion, hybridXc, chrgForces, eigenvecs, derivs, this, errStatus,&
-      & symNeighbourList, nNeighbourCamSym)
+      & species, q0, dispersion, hybridXc, rsOnsCorr, chrgForces, eigenvecs, derivs, this,&
+      & errStatus, symNeighbourList, nNeighbourCamSym)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -859,6 +865,9 @@ module dftbp_reks_reksinterface
     !> Range separation contributions
     class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
+    !> Onsite correction data with range-separated functional
+    type(TRangeSepOnsCorrFunc), allocatable, intent(inout) :: rsOnsCorr
+
     !> forces on external charges
     real(dp), allocatable, intent(inout) :: chrgForces(:,:)
 
@@ -883,6 +892,7 @@ module dftbp_reks_reksinterface
     real(dp), allocatable :: repDerivs(:,:)
     real(dp), allocatable :: dispDerivs(:,:)
     real(dp), allocatable :: lcDerivs(:,:,:)
+    real(dp), allocatable :: lcOcDerivs(:,:,:)
 
     integer :: nAtom, iL
 
@@ -892,6 +902,9 @@ module dftbp_reks_reksinterface
     allocate(dispDerivs(3,nAtom))
     if (this%isHybridXc) then
       allocate(lcDerivs(3,nAtom,this%Lmax))
+    end if
+    if (this%isRS_OnsCorr) then
+      allocate(lcOcDerivs(3,nAtom,this%Lmax))
     end if
 
     ! hamSpL has (my_ud) component
@@ -950,6 +963,14 @@ module dftbp_reks_reksinterface
       #:endif
       end if
 
+      if (this%isRS_OnsCorr) then
+        ! deltaRhoSqrL has (my_ud) component
+        lcOcDerivs(:,:,iL) = 0.0_dp
+        call rsOnsCorr%addLrOcGradients(lcOcDerivs(:,:,iL), nonSccDeriv, skOverCont,&
+            & coord, nNeighbourSK, neighbourList%iNeighbour, denseDesc%iAtomStart, species,&
+            & orb, this%deltaRhoSqrL(:,:,:,iL), this%overSqr)
+      end if
+
       ! TODO : this part should be modified after merging selfconsistent
       !      : MBD/TS or dftd4 gradients
       if (iL == 1) then
@@ -982,6 +1003,21 @@ module dftbp_reks_reksinterface
             derivs(:,:) = lcDerivs(:,:,iL) + lcDerivs(:,:,iL+1)
           else
             derivs(:,:) = lcDerivs(:,:,iL) + lcDerivs(:,:,iL-1)
+          end if
+        end if
+        this%gradL(:,:,iL) = this%gradL(:,:,iL) + derivs
+      end do
+    end if
+
+    if (this%isRS_OnsCorr) then
+      do iL = 1, this%Lmax
+        if (iL <= this%Lpaired) then
+          derivs(:,:) = lcOcDerivs(:,:,iL) + lcOcDerivs(:,:,iL)
+        else
+          if (mod(iL,2) == 1) then
+            derivs(:,:) = lcOcDerivs(:,:,iL) + lcOcDerivs(:,:,iL+1)
+          else
+            derivs(:,:) = lcOcDerivs(:,:,iL) + lcOcDerivs(:,:,iL-1)
           end if
         end if
         this%gradL(:,:,iL) = this%gradL(:,:,iL) + derivs

@@ -1539,8 +1539,8 @@ contains
             & this%q0, this%qOutput, this%orb, this%species, this%tPrintMulliken,&
             & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion, this%tPeriodic,&
             & this%tSccCalc, this%invLatVec, this%kPoint, this%iAtInCentralRegion,&
-            & this%electronicSolver, this%reks, allocated(this%thirdOrd), this%isHybridXc,&
-            & qNetAtom=this%qNetAtom)
+            & this%electronicSolver, this%reks, allocated(this%thirdOrd), allocated(onSiteElements),&
+            & this%isHybridXc, this%isRS_OnsCorr, qNetAtom=this%qNetAtom)
       else
         call writeDetailedOut1(this%fdDetailedOut%unit, this%iDistribFn, this%nGeoSteps,&
             & iGeoStep, this%tMD, this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep,&
@@ -1671,12 +1671,12 @@ contains
     if (this%tForces) then
       call env%globalTimer%startTimer(globalTimers%forceCalc)
       if (allocated(this%reks)) then
-        call getReksGradients(env, this%denseDesc, this%scc, this%hybridXc, this%dispersion,&
-            & this%neighbourList, this%nNeighbourSK, this%iSparseStart, this%img2CentCell,&
-            & this%orb, this%nonSccDeriv, this%skHamCont, this%skOverCont, this%repulsive,&
-            & this%coord, this%coord0, this%species, this%q0, this%eigvecsReal,&
-            & this%chrgForces, this%ints%overlap, this%spinW, this%derivs, this%tWriteAutotest,&
-            & autotestTag, this%taggedWriter, this%reks, errStatus,&
+        call getReksGradients(env, this%denseDesc, this%scc, this%hybridXc, this%rsOnsCorr,&
+            & this%dispersion, this%neighbourList, this%nNeighbourSK, this%iSparseStart,&
+            & this%img2CentCell, this%orb, this%nonSccDeriv, this%skHamCont, this%skOverCont,&
+            & this%repulsive, this%coord, this%coord0, this%species, this%q0, this%eigvecsReal,&
+            & this%chrgForces, this%ints%overlap, this%spinW, this%onSiteElements, this%derivs,&
+            & this%tWriteAutotest, autotestTag, this%taggedWriter, this%reks, errStatus,&
             & symNeighbourList=this%symNeighbourList, nNeighbourCamSym=this%nNeighbourCamSym)
         @:PROPAGATE_ERROR(errStatus)
         call getReksGradProperties(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
@@ -8108,7 +8108,7 @@ contains
     !> Sparse density matrix
     real(dp), intent(inout) :: rhoPrim(:,:)
 
-    !> Corrections terms for on-site elements
+    !> Correction to energy from on-site matrix elements
     real(dp), intent(in), allocatable :: onSiteElements(:,:,:,:)
 
     !> Dispersion interactions
