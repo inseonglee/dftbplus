@@ -223,7 +223,7 @@ module dftbp_reks_reksvar
     !> Third order DFTB
     logical :: t3rd
 
-    !> Whether to run a onsite-corrected calculation
+    !> Are on-site corrections being used?
     logical :: isOnsite
 
     !> Whether to run a range separated calculation
@@ -398,11 +398,17 @@ module dftbp_reks_reksvar
     !> spin W in AO basis
     real(dp), allocatable :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable :: OnsiteAO(:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable :: LrGammaAO(:,:)
 
     !> long-range gamma derivative integrals
     real(dp), allocatable :: LrGammaDeriv(:,:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable :: LrOnsiteAO(:,:,:)
 
 
     !> Hartree-XC kernel with sparse form with same spin part
@@ -812,10 +818,16 @@ module dftbp_reks_reksvar
         allocate(this%GammaAO(nOrb,nOrb))
         allocate(this%GammaDeriv(nAtom,nAtom,3))
         allocate(this%SpinAO(nOrb,nOrb))
+        if (this%isOnsite) then
+          allocate(this%OnsiteAO(nOrb,nOrb,nSpin))
+        end if
 
         if (this%isHybridXc) then
           allocate(this%LrGammaAO(nOrb,nOrb))
           allocate(this%LrGammaDeriv(nAtom,nAtom,3))
+        end if
+        if (this%isRS_OnsCorr) then
+          allocate(this%LrOnsiteAO(nOrb,nOrb,2))
         end if
 
         allocate(this%weightIL(Lmax))
@@ -1016,10 +1028,16 @@ module dftbp_reks_reksvar
         this%GammaAO(:,:) = 0.0_dp
         this%GammaDeriv(:,:,:) = 0.0_dp
         this%SpinAO(:,:) = 0.0_dp
+        if (this%isOnsite) then
+          this%OnsiteAO(:,:,:) = 0.0_dp
+        end if
 
         if (this%isHybridXc) then
           this%LrGammaAO(:,:) = 0.0_dp
           this%LrGammaDeriv(:,:,:) = 0.0_dp
+        end if
+        if (this%isRS_OnsCorr) then
+          this%LrOnsiteAO(:,:,:) = 0.0_dp
         end if
 
         this%weightIL(:) = 0.0_dp

@@ -1536,7 +1536,7 @@ contains
         call writeReksDetailedOut1(this%fdDetailedOut%unit, this%nGeoSteps, iGeoStep, this%tMD,&
             & this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep, iSccIter,&
             & this%dftbEnergy(1), diffElec, sccErrorQ, this%indMovedAtom, this%pCoord0Out,&
-            & this%q0, this%qOutput, this%orb, this%species, this%tPrintMulliken,&
+            & this%q0, this%qOutput, this%qBlockOut, this%orb, this%species, this%tPrintMulliken,&
             & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion, this%tPeriodic,&
             & this%tSccCalc, this%invLatVec, this%kPoint, this%iAtInCentralRegion,&
             & this%electronicSolver, this%reks, allocated(this%thirdOrd), allocated(onSiteElements),&

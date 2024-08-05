@@ -45,7 +45,7 @@ module dftbp_reks_reksgrad
   private
   public :: getEnergyWeightedDensityL
   public :: derivative_blockL, weightGradient
-  public :: getSccSpinLrPars, getHxcKernel, getG1ILOmegaRab, getSuperAMatrix
+  public :: getFullLongRangePars, getHxcKernel, getG1ILOmegaRab, getSuperAMatrix
   public :: buildSaReksVectors, buildInteractionVectors, buildLstateVector, solveZT
   public :: getRmat, getRdel, getZmat, getQ1mat, getQ1del, getQ2mat
   public :: SaToSsrXT, SaToSsrWeight, SaToSsrGradient, addSItoRQ
@@ -410,9 +410,10 @@ contains
 
 
   !> Calculate SCC, spin, LC parameters with matrix form
-  subroutine getSccSpinLrPars(env, sccCalc, hybridXc, coords, species, &
-      & iNeighbour, img2CentCell, iSquare, spinW, getAtomIndex, isHybridXc, &
-      & GammaAO, GammaDeriv, SpinAO, LrGammaAO, LrGammaDeriv)
+  subroutine getFullLongRangePars(env, sccCalc, hybridXc, coords, species,&
+      & iNeighbour, img2CentCell, iSquare, spinW, onSiteElements, getAtomIndex,&
+      & isOnsite, isHybridXc,  isRS_OnsCorr, GammaAO, GammaDeriv, SpinAO, OnsiteAO,&
+      & LrGammaAO, LrGammaDeriv, LrOnsiteAO)
 
     !> Computational environment settings
     type(TEnvironment), intent(in) :: env
@@ -441,11 +442,20 @@ contains
     !> spin constants
     real(dp), intent(in) :: spinW(:,:,:)
 
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
     !> get atom index from AO index
     integer, intent(in) :: getAtomIndex(:)
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> scc gamma integrals in AO basis
     real(dp), intent(out) :: GammaAO(:,:)
@@ -456,11 +466,17 @@ contains
     !> spin W in AO basis
     real(dp), intent(out) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(inout) :: OnsiteAO(:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(inout) :: LrGammaAO(:,:)
 
     !> long-range gamma derivative integrals
     real(dp), allocatable, intent(inout) :: LrGammaDeriv(:,:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(inout) :: LrOnsiteAO(:,:,:)
 
     real(dp), allocatable :: tmpGamma(:,:)
     real(dp), allocatable :: tmpLrGamma(:,:)
@@ -496,21 +512,35 @@ contains
     end do
 
     ! get spinW with respect to AO
+    ! get spinW, onSiteElements with respect to AO
     SpinAO(:,:) = 0.0_dp
+    if (isOnsite) then
+      OnsiteAO(:,:,:) = 0.0_dp
+    end if
     do mu = 1, nOrb
       do nu = mu, nOrb
         ! find proper atom index
         G1 = getAtomIndex(mu)
         G2 = getAtomIndex(nu)
         if (G1 == G2) then
+
           ! set the orbital shell for mu index
           call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
           ! set the orbital shell for nu index
           call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+
           SpinAO(nu,mu) = spinW(iSp2,iSp1,species(G1))
+          if (isOnsite) then
+            OnSiteAO(nu,mu,1:2) = onSiteElements(iSp2,iSp1,1:2,species(G1))
+          end if
+
           if (nu /= mu) then
             SpinAO(mu,nu) = SpinAO(nu,mu)
+            if (isOnsite) then
+              OnSiteAO(mu,nu,:) = OnSiteAO(nu,mu,:)
+            end if
           end if
+
         end if
       end do
     end do
@@ -534,6 +564,38 @@ contains
       call hybridXc%getCamGammaDerivCluster(LrGammaDeriv)
       do ii = 1, 3
         call adjointLowerTriangle(LrGammaDeriv(:,:,ii))
+      end do
+
+    end if
+
+    if (isRS_OnsCorr) then
+
+      ! Set onsite constants matrices
+      LrOnsiteAO(:,:,:) = 0.0_dp
+      do mu = 1, nOrb
+        do nu = mu, nOrb
+          ! find proper atom index
+          G1 = getAtomIndex(mu)
+          G2 = getAtomIndex(nu)
+          if (G1 == G2) then
+
+            ! set the orbital shell for mu index
+            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
+            ! set the orbital shell for nu index
+            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+
+            LrOnSiteAO(nu,mu,1) = onSiteElements(iSp2,iSp1,3,species(G1))
+
+            if (iSp1 == 2 .and. iSp2 == 2) then
+              LrOnsiteAO(nu,mu,2) = -onSiteElements(iSp2,iSp1,3,species(G1))
+            end if
+
+            if (nu /= mu) then
+              LrOnsiteAO(mu,nu,:) = LrOnsiteAO(nu,mu,:)
+            end if
+
+          end if
+        end do
       end do
 
     end if

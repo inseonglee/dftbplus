@@ -370,7 +370,7 @@ module dftbp_reks_reksinterface
       ! get REKS parameters used in CP-REKS and gradient equations
       call getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
           & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
-          & eigenvecs, coord, species, over, spinW, this)
+          & eigenvecs, coord, species, over, spinW, onSiteElements, this)
 
       call buildStateVectors_(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, orb, over, this)
@@ -1030,7 +1030,7 @@ module dftbp_reks_reksinterface
   !> Set several REKS variables used in CP-REKS equations
   subroutine getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
-      & eigenvecs, coord, species, over, spinW, this)
+      & eigenvecs, coord, species, over, spinW, onSiteElements, this)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1071,14 +1071,18 @@ module dftbp_reks_reksinterface
     !> spin constants
     real(dp), intent(in) :: spinW(:,:,:)
 
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
     ! get gamma, spinW, gamma deriv, LR-gamma, LR-gamma deriv, on-site constants
-    call getSccSpinLrPars(env, sccCalc, hybridXc, coord, species, &
-        & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart, &
-        & spinW, this%getAtomIndex, this%isHybridXc, this%GammaAO, &
-        & this%GammaDeriv, this%SpinAO, this%LrGammaAO, this%LrGammaDeriv)
+    call getFullLongRangePars(env, sccCalc, hybridXc, coord, species,&
+        & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart,&
+        & spinW, onSiteElements, this%getAtomIndex, this%isOnsite, this%isHybridXc,&
+        & this%isRS_OnsCorr, this%GammaAO, this%GammaDeriv, this%SpinAO,&
+        & this%OnsiteAO, this%LrGammaAO, this%LrGammaDeriv, this%LrOnsiteAO)
 
     ! get Hxc kernel -> (\mu,\nu|f_{Hxc}|\tau,\gam)
     call getHxcKernel(this%getDenseAO, over, this%overSqr, this%GammaAO, this%SpinAO,&
