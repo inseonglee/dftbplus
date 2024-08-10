@@ -145,7 +145,7 @@ contains
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
 
     !> block (dual) atomic populations
-    real(dp), intent(in), allocatable :: qBlock(:,:,:,:)
+    real(dp), intent(in) :: qBlock(:,:,:,:)
 
     !> Imaginary part of block atomic populations
     real(dp), intent(in), allocatable :: qiBlock(:,:,:,:)

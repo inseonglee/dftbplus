@@ -28,6 +28,7 @@ module dftbp_reks_reksinterface
   use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList
   use dftbp_dftb_populations, only : mulliken
   use dftbp_dftb_hybridxc, only : THybridXcFunc
+  use dftbp_dftb_rangeseponscorr, only : TRangeSepOnsCorrFunc
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_slakocont, only : TSlakoCont
@@ -43,7 +44,7 @@ module dftbp_reks_reksinterface
   use dftbp_reks_reksgrad, only : weightgradient, ssrshift, sishift, satossrxt, satossrweight,&
       & addsitorq, ssrshift, lshift, getothersagrad, satossrgradient, getreksnac, rtshift, &
       & solvezt, getrmat, getzmat, getq2mat, getq1mat, buildsareksvectors, getrdel, getzmat,&
-      & buildinteractionvectors, getq2mat, getq1del, buildlstatevector, getsccspinlrpars,&
+      & buildinteractionvectors, getq2mat, getq1del, buildlstatevector, getfulllongrangepars,&
       & gethxckernel, getsuperamatrix, getenergyweighteddensityl, derivative_blockl,&
       & getg1ilomegarab, getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
@@ -1077,7 +1078,7 @@ module dftbp_reks_reksinterface
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
-    ! get gamma, spinW, gamma deriv, LR-gamma, LR-gamma deriv, on-site constants
+    ! get gamma, spinW, gamma deriv, lr-gamma, lr-gamma deriv, on-site constants
     call getFullLongRangePars(env, sccCalc, hybridXc, coord, species,&
         & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart,&
         & spinW, onSiteElements, this%getAtomIndex, this%isOnsite, this%isHybridXc,&

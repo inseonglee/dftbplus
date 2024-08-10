@@ -1539,7 +1539,7 @@ contains
             & this%q0, this%qOutput, this%qBlockOut, this%orb, this%species, this%tPrintMulliken,&
             & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion, this%tPeriodic,&
             & this%tSccCalc, this%invLatVec, this%kPoint, this%iAtInCentralRegion,&
-            & this%electronicSolver, this%reks, allocated(this%thirdOrd), allocated(onSiteElements),&
+            & this%electronicSolver, this%reks, allocated(this%thirdOrd), allocated(this%onSiteElements),&
             & this%isHybridXc, this%isRS_OnsCorr, qNetAtom=this%qNetAtom)
       else
         call writeDetailedOut1(this%fdDetailedOut%unit, this%iDistribFn, this%nGeoSteps,&
@@ -7936,7 +7936,15 @@ contains
     !> Data type for REKS
     type(TReksCalc), intent(inout) :: reks
 
-    integer :: iL
+    real(dp), allocatable :: tmpQBlock(:,:,:,:)
+    integer :: nAtom, nSpin, iL
+
+    nAtom = size(reks%qBlockL,dim=3)
+    nSpin = size(reks%qBlockL,dim=4)
+
+    if (reks%isOnsite) then
+      allocate(tmpQBlock(orb%mOrb,orb%mOrb,nAtom,nSpin))
+    end if
 
     do iL = 1, reks%Lmax
 
@@ -7953,12 +7961,17 @@ contains
       ! reks%qOutputL & reks%qNetAtomL has (my_qm) component
       reks%qOutputL(:,:,:,iL) = 0.0_dp
       if (reks%isOnsite) then
-        ! reks%qBlockL has (my_qm) component
-        reks%qBlockL(:,:,:,:,iL) = 0.0_dp
+        tmpQBlock(:,:,:,:) = 0.0_dp
       end if
       call getMullikenPopulation(env, rhoPrim, ints, orb, neighbourList, nNeighbourSK, &
           & img2CentCell, iSparseStart, reks%qOutputL(:,:,:,iL), iRhoPrim=iRhoPrim, &
-          & qBlock=reks%qBlockL(:,:,:,:,iL), qiBlock=qiBlock, qNetAtom=qNetAtom)
+          & qBlock=tmpQBlock, qiBlock=qiBlock, qNetAtom=qNetAtom)
+
+      ! Get correct block mulliken population for each microstate
+      ! reks%qBlockL has (my_qm) component
+      if (reks%isOnsite) then
+        reks%qBlockL(:,:,:,:,iL) = tmpQBlock
+      end if
 
       ! Get correct net charge per atom
       ! Note that qNetAtomL does not have spin dependency so it does not
@@ -8169,7 +8182,7 @@ contains
           & img2CentCell, spinW, solvation, thirdOrd, dispersion, potential)
       if (reks%isOnsite) then
         call addOnsShift(potential%intBlock, potential%iOrbitalBlock,&
-            & reks%qBlock(:,:,:,:,iL), qiBlock, onSiteElements, species, orb, q0)
+            & reks%qBlockL(:,:,:,:,iL), qiBlock, onSiteElements, species, orb, q0)
       end if
 
       ! reks%intShellL, reks%intBlockL has (qm) component

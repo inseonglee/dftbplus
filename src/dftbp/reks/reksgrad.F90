@@ -511,7 +511,6 @@ contains
       call adjointLowerTriangle(GammaDeriv(:,:,ii))
     end do
 
-    ! get spinW with respect to AO
     ! get spinW, onSiteElements with respect to AO
     SpinAO(:,:) = 0.0_dp
     if (isOnsite) then
@@ -570,7 +569,7 @@ contains
 
     if (isRS_OnsCorr) then
 
-      ! Set onsite constants matrices
+      ! Set onsite constant with long-range exchange kernel
       LrOnsiteAO(:,:,:) = 0.0_dp
       do mu = 1, nOrb
         do nu = mu, nOrb
@@ -600,7 +599,7 @@ contains
 
     end if
 
-  end subroutine getSccSpinLrPars
+  end subroutine getFullLongRangePars
 
 
   !> Interface routine to calculate H-XC kernel in REKS
