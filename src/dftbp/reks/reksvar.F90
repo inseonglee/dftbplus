@@ -399,7 +399,7 @@ module dftbp_reks_reksvar
     real(dp), allocatable :: SpinAO(:,:)
 
     !> onSiteElements in AO basis
-    real(dp), allocatable :: OnsiteAO(:,:,:)
+    real(dp), allocatable :: OnsiteAO(:,:,:,:)
 
     !> long-range gamma integrals in AO basis
     real(dp), allocatable :: LrGammaAO(:,:)
@@ -819,7 +819,7 @@ module dftbp_reks_reksvar
         allocate(this%GammaDeriv(nAtom,nAtom,3))
         allocate(this%SpinAO(nOrb,nOrb))
         if (this%isOnsite) then
-          allocate(this%OnsiteAO(nOrb,nOrb,nSpin))
+          allocate(this%OnsiteAO(nOrb,nOrb,nSpin,2))
         end if
 
         if (this%isHybridXc) then
@@ -838,7 +838,7 @@ module dftbp_reks_reksvar
 
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (this%isHybridXc) then
+            if (this%isHybridXc .or. this%isOnsite) then
               allocate(this%HxcHalfS(nOrbHalf,nOrbHalf))
               allocate(this%HxcHalfD(nOrbHalf,nOrbHalf))
             else
@@ -1029,7 +1029,7 @@ module dftbp_reks_reksvar
         this%GammaDeriv(:,:,:) = 0.0_dp
         this%SpinAO(:,:) = 0.0_dp
         if (this%isOnsite) then
-          this%OnsiteAO(:,:,:) = 0.0_dp
+          this%OnsiteAO(:,:,:,:) = 0.0_dp
         end if
 
         if (this%isHybridXc) then
@@ -1048,7 +1048,7 @@ module dftbp_reks_reksvar
 
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (this%isHybridXc) then
+            if (this%isHybridXc .or. this%isOnsite) then
               this%HxcHalfS(:,:) = 0.0_dp
               this%HxcHalfD(:,:) = 0.0_dp
             else
@@ -1321,7 +1321,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. this%isHybridXc) then
+            if (.not. (this%isHybridXc .or. this%isOnsite)) then
               deallocate(this%HxcSpS)
               deallocate(this%HxcSpD)
             end if
@@ -1343,7 +1343,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. this%isHybridXc) then
+            if (.not. (this%isHybridXc .or. this%isOnsite)) then
               allocate(this%HxcSpS(sparseSize,sparseSize))
               allocate(this%HxcSpD(sparseSize,sparseSize))
             end if
@@ -1365,7 +1365,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. this%isHybridXc) then
+            if (.not. (this%isHybridXc .or. this%isOnsite)) then
               this%HxcSpS = 0.0_dp
               this%HxcSpD = 0.0_dp
             end if

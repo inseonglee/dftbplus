@@ -1087,8 +1087,9 @@ module dftbp_reks_reksinterface
 
     ! get Hxc kernel -> (\mu,\nu|f_{Hxc}|\tau,\gam)
     call getHxcKernel(this%getDenseAO, over, this%overSqr, this%GammaAO, this%SpinAO,&
-        & this%LrGammaAO, this%Glevel, this%tSaveMem, this%isHybridXc, this%HxcSpS, &
-        & this%HxcSpD, this%HxcHalfS, this%HxcHalfD, this%HxcSqrS, this%HxcSqrD)
+        & this%OnsiteAO, this%LrGammaAO, this%LrOnsiteAO, this%Glevel, this%tSaveMem,&
+        & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, this%HxcSpS, this%HxcSpD,&
+        & this%HxcHalfS, this%HxcHalfD, this%HxcSqrS, this%HxcSqrD)
 
     ! get G1, weightIL, Omega, Rab values
     call getG1ILOmegaRab(env, denseDesc, neighbourList, nNeighbourSK, &

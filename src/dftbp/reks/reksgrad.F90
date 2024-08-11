@@ -467,7 +467,7 @@ contains
     real(dp), intent(out) :: SpinAO(:,:)
 
     !> onSiteElements in AO basis
-    real(dp), allocatable, intent(inout) :: OnsiteAO(:,:,:)
+    real(dp), allocatable, intent(inout) :: OnsiteAO(:,:,:,:)
 
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(inout) :: LrGammaAO(:,:)
@@ -482,7 +482,8 @@ contains
     real(dp), allocatable :: tmpLrGamma(:,:)
 
     real(dp) :: fac1, fac2
-    integer :: nOrb, nAtom, mu, nu, G1, G2, ii, iAt1, iAt2, iSp1, iSp2
+    integer :: nOrb, nAtom
+    integer :: mu, nu, G1, G2, ii, iAt1, iAt2, iSp1, iSp2, iSpin
 
     nOrb = size(GammaAO,dim=1)
     nAtom = size(iSquare,dim=1) - 1
@@ -511,11 +512,8 @@ contains
       call adjointLowerTriangle(GammaDeriv(:,:,ii))
     end do
 
-    ! get spinW, onSiteElements with respect to AO
+    ! get spinW with respect to AO
     SpinAO(:,:) = 0.0_dp
-    if (isOnsite) then
-      OnsiteAO(:,:,:) = 0.0_dp
-    end if
     do mu = 1, nOrb
       do nu = mu, nOrb
         ! find proper atom index
@@ -529,15 +527,9 @@ contains
           call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
 
           SpinAO(nu,mu) = spinW(iSp2,iSp1,species(G1))
-          if (isOnsite) then
-            OnSiteAO(nu,mu,1:2) = onSiteElements(iSp2,iSp1,1:2,species(G1))
-          end if
 
           if (nu /= mu) then
             SpinAO(mu,nu) = SpinAO(nu,mu)
-            if (isOnsite) then
-              OnSiteAO(mu,nu,:) = OnSiteAO(nu,mu,:)
-            end if
           end if
 
         end if
@@ -567,6 +559,42 @@ contains
 
     end if
 
+    if (isOnsite) then
+
+      ! Set onsite constant with full-range Hxc kernel
+      OnsiteAO(:,:,:,:) = 0.0_dp
+      do mu = 1, nOrb
+        do nu = mu, nOrb
+          ! find proper atom index
+          G1 = getAtomIndex(mu)
+          G2 = getAtomIndex(nu)
+          if (G1 == G2) then
+
+            ! set the orbital shell for mu index
+            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
+            ! set the orbital shell for nu index
+            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+
+            do iSpin = 1, size(onSiteElements,dim=3)
+
+              OnSiteAO(nu,mu,iSpin,1) = onSiteElements(iSp2,iSp1,iSpin,species(G1))
+
+              if (iSp1 == 2 .and. iSp2 == 2) then
+                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) / 6.0_dp
+              end if
+
+              if (nu /= mu) then
+                OnSiteAO(mu,nu,iSpin,:) = OnSiteAO(nu,mu,iSpin,:)
+              end if
+
+            end do
+
+          end if
+        end do
+      end do
+
+    end if
+
     if (isRS_OnsCorr) then
 
       ! Set onsite constant with long-range exchange kernel
@@ -586,7 +614,7 @@ contains
             LrOnSiteAO(nu,mu,1) = onSiteElements(iSp2,iSp1,3,species(G1))
 
             if (iSp1 == 2 .and. iSp2 == 2) then
-              LrOnsiteAO(nu,mu,2) = -onSiteElements(iSp2,iSp1,3,species(G1))
+              LrOnsiteAO(nu,mu,2) = onSiteElements(iSp2,iSp1,3,species(G1)) / 6.0_dp
             end if
 
             if (nu /= mu) then
@@ -603,8 +631,9 @@ contains
 
 
   !> Interface routine to calculate H-XC kernel in REKS
-  subroutine getHxcKernel(getDenseAO, over, overSqr, GammaAO, SpinAO, LrGammaAO, Glevel, tSaveMem,&
-      & isHybridXc, HxcSpS, HxcSpD, HxcHalfS, HxcHalfD, HxcSqrS, HxcSqrD)
+  subroutine getHxcKernel(getDenseAO, over, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO,&
+      & LrOnsiteAO, Glevel, tSaveMem, isOnsite, isHybridXc, isRS_OnsCorr, HxcSpS, HxcSpD,&
+      & HxcHalfS, HxcHalfD, HxcSqrS, HxcSqrD)
 
     !> get dense AO index from sparse AO array
     integer, intent(in) :: getDenseAO(:,:)
@@ -621,8 +650,14 @@ contains
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
 
     !> Algorithms to calculate analytic gradients
     integer, intent(in) :: Glevel
@@ -630,8 +665,14 @@ contains
     !> Save 'A' and 'Hxc' to memory in gradient calculation
     logical, intent(in) :: tSaveMem
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> Hartree-XC kernel with sparse form with same spin part
     real(dp), allocatable, intent(inout) :: HxcSpS(:,:)
@@ -655,12 +696,12 @@ contains
 
       if (tSaveMem) then
 
-        if (isHybridXc) then
+        if (isHybridXc .or. isOnsite) then
 
           ! get Hxc kernel for DFTB with respect to AO basis
           ! for LC case, we use half dense form.
-          call HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, LrGammaAO, isHybridXc,&
-              & HxcHalfS, HxcHalfD)
+          call HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
+              & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, HxcHalfS, HxcHalfD)
 
         else
 
@@ -2838,8 +2879,8 @@ contains
 
 
   !> Calculate H-XC kernel for DFTB in AO basis with half dense form
-  subroutine HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, LrGammaAO, isHybridXc, HxcHalfS,&
-      & HxcHalfD)
+  subroutine HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
+      & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, HxcHalfS, HxcHalfD)
 
     !> get dense AO index from sparse AO array
     integer, intent(in) :: getDenseAO(:,:)
@@ -2853,11 +2894,23 @@ contains
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
+
     !> long-range gamma integrals in AO basis
-    real(dp), intent(in) :: LrGammaAO(:,:)
+    real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
+
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
 
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> Hartree-XC kernel with half dense form with same spin part
     real(dp), allocatable, intent(inout) :: HxcHalfS(:,:)
@@ -2868,7 +2921,7 @@ contains
     ! common variables
     real(dp) :: tmp22
     integer :: ii, jj, sparseSize, k, l, nOrbHalf
-    integer :: mu, nu, tau, gam, nOrb
+    integer :: mu, nu, tau, gam, kap, nOrb
 
     ! scc/spin variables
     real(dp) :: tmpG1, tmpG2, tmpG3, tmpG4
@@ -2878,6 +2931,10 @@ contains
     real(dp) :: tmpL1, tmpL2, tmpL3, tmpL4
     real(dp) :: tmpvalue1, tmpvalue2
 
+    ! onsite variables
+    real(dp) :: tmpO1s, tmpO2s, tmpO3s
+    real(dp) :: tmpO1d, tmpO2d, tmpO3d
+
     nOrb = size(overSqr,dim=1)
     sparseSize = size(getDenseAO,dim=1)
     nOrbHalf = nOrb * (nOrb + 1) / 2
@@ -2886,9 +2943,10 @@ contains
     HxcHalfS(:,:) = 0.0_dp
     HxcHalfD(:,:) = 0.0_dp
 
-    ! scc, spin part
+    ! scc, spin, onsite part
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,k,tau,gam,l, &
-!$OMP& tmpG1,tmpG2,tmpG3,tmpG4,tmpS1,tmpS2,tmpS3,tmpS4) SCHEDULE(RUNTIME)
+!$OMP& tmpG1,tmpG2,tmpG3,tmpG4,tmpS1,tmpS2,tmpS3,tmpS4, &
+!$OMP& tmpO3s,tmpO3d) SCHEDULE(RUNTIME)
     do ii = 1, sparseSize
 
       ! set the AO indices with respect to sparsity
@@ -2929,6 +2987,19 @@ contains
             HxcHalfD(k,l) = 0.25_dp * overSqr(mu,nu) * overSqr(tau,gam) * &
                 & ( (tmpG1+tmpG2+tmpG3+tmpG4) - (tmpS1+tmpS2+tmpS3+tmpS4) )
 
+            if (isOnsite) then
+
+              ! onsite part
+              tmpO3s = overSqr(mu,nu) * overSqr(tau,gam) * (OnsiteAO(mu,tau,1,2) + &
+                  & OnsiteAO(nu,tau,1,2) + OnsiteAO(mu,gam,1,2) + OnsiteAO(nu,gam,1,2))
+              tmpO3d = overSqr(mu,nu) * overSqr(tau,gam) * (OnsiteAO(mu,tau,2,2) + &
+                  & OnsiteAO(nu,tau,2,2) + OnsiteAO(mu,gam,2,2) + OnsiteAO(nu,gam,2,2))
+
+              HxcHalfS(k,l) = HxcHalfS(k,l) - tmpO3s
+              HxcHalfD(k,l) = HxcHalfD(k,l) - tmpO3d
+
+            end if
+
           end if
 
         end do
@@ -2938,11 +3009,12 @@ contains
     end do
 !$OMP END PARALLEL DO
 
-    ! LC terms
+    ! LC, onsite terms
     if (isHybridXc) then
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam,tmp22, &
-!$OMP& tmpL1,tmpL2,tmpL3,tmpL4,tmpvalue1,tmpvalue2) SCHEDULE(RUNTIME)
+!$OMP& tmpL1,tmpL2,tmpL3,tmpL4,tmpvalue1,tmpvalue2,kap, &
+!$OMP& tmpO1s,tmpO2s,tmpO3s) SCHEDULE(RUNTIME)
       do k = 1, nOrbHalf
 
         call getTwoIndices(nOrb, k, mu, nu, 2)
@@ -2986,6 +3058,120 @@ contains
             end if
 
             HxcHalfS(k,l) = HxcHalfS(k,l) + tmpvalue1 + tmpvalue2
+
+          end if
+
+          ! onsite terms
+          if (isOnsite) then
+
+            tmpO1s = 0.25_dp * overSqr(mu,gam) * overSqr(nu,tau) * &
+                & (OnsiteAO(mu,tau,1,1) + OnsiteAO(nu,gam,1,1))
+            tmpO1d = 0.25_dp * overSqr(mu,gam) * overSqr(nu,tau) * &
+                & (OnsiteAO(mu,tau,2,1) + OnsiteAO(nu,gam,2,1))
+
+            tmpO2s = 0.0_dp
+            tmpO2d = 0.0_dp
+
+            do kap = 1, nOrb
+
+              if (mu == tau) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(nu,kap) * &
+                    overSqr(kap,gam) * OnsiteAO(mu,kap,1,1)
+                tmpO2d = tmpO2d + 0.25_dp * overSqr(nu,kap) * &
+                    overSqr(kap,gam) * OnsiteAO(mu,kap,2,1)
+              end if
+
+              if (nu == tau) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,gam) * OnsiteAO(nu,kap,1,1)
+                tmpO2d = tmpO2d + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,gam) * OnsiteAO(nu,kap,2,1)
+              end if
+
+            end do
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s
+            HxcHalfD(k,l) = HxcHalfD(k,l) + tmpO1d + tmpO2d
+
+            tmpO1s = 0.25_dp * overSqr(mu,tau) * overSqr(nu,gam) * &
+                & (OnsiteAO(mu,gam,1,1) + OnsiteAO(nu,tau,1,1))
+            tmpO1d = 0.25_dp * overSqr(mu,tau) * overSqr(nu,gam) * &
+                & (OnsiteAO(mu,gam,2,1) + OnsiteAO(nu,tau,2,1))
+
+            tmpO2s = 0.0_dp
+            tmpO2d = 0.0_dp
+
+            do kap = 1, nOrb
+
+              if (mu == gam) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(nu,kap) * &
+                    overSqr(kap,tau) * OnsiteAO(mu,kap,1,1)
+                tmpO2d = tmpO2d + 0.25_dp * overSqr(nu,kap) * &
+                    overSqr(kap,tau) * OnsiteAO(mu,kap,2,1)
+              end if
+
+              if (nu == gam) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,tau) * OnsiteAO(nu,kap,1,1)
+                tmpO2d = tmpO2d + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,tau) * OnsiteAO(nu,kap,2,1)
+              end if
+
+            end do
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s
+            HxcHalfD(k,l) = HxcHalfD(k,l) + tmpO1d + tmpO2d
+
+          end if
+
+          ! long-range onsite terms
+          if (isRS_OnsCorr) then
+
+            tmpO1s = 0.25_dp * overSqr(mu,nu) * overSqr(gam,tau) * &
+                & (LrOnsiteAO(mu,tau,1) + LrOnsiteAO(gam,nu,1))
+
+            tmpO2s = 0.0_dp
+            do kap = 1, nOrb
+
+              if (mu == tau) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(gam,kap) * &
+                    overSqr(kap,nu) * LrOnsiteAO(mu,kap,1)
+              end if
+
+              if (gam == tau) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,nu) * LrOnsiteAO(gam,kap,1)
+              end if
+
+            end do
+
+            tmpO3s = overSqr(mu,gam) * overSqr(tau,nu) * &
+                (LrOnsiteAO(mu,tau,2) + LrOnsiteAO(gam,tau,2))
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s - tmpO3s
+
+            tmpO1s = 0.25_dp * overSqr(mu,tau) * overSqr(gam,nu) * &
+                & (LrOnsiteAO(mu,nu,1) + LrOnsiteAO(gam,tau,1))
+
+            tmpO2s = 0.0_dp
+            do kap = 1, nOrb
+
+              if (mu == nu) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(gam,kap) * &
+                    overSqr(kap,tau) * LrOnsiteAO(mu,kap,1)
+              end if
+
+              if (gam == nu) then
+                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
+                    overSqr(kap,tau) * LrOnsiteAO(gam,kap,1)
+              end if
+
+            end do
+
+            tmpO3s = overSqr(mu,gam) * overSqr(tau,nu) * &
+                (LrOnsiteAO(mu,nu,2) + LrOnsiteAO(gam,nu,2))
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s - tmpO3s
 
           end if
 
