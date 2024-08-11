@@ -2186,10 +2186,10 @@ contains
   !> Calculate R*T contribution of gradient (2nd term)
   subroutine RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, coord0, Hderiv, Sderiv, rhoSqrL, overSqr, &
-      & deltaRhoSqrL, qOutputL, q0, GammaAO, GammaDeriv, SpinAO, LrGammaAO, &
-      & LrGammaDeriv, RmatL, RdelL, tmpRL, weight, extCharges, blurWidths, &
+      & deltaRhoSqrL, qOutputL, qBlockL, q0, GammaAO, GammaDeriv, SpinAO, OnsiteAO, &
+      & LrGammaAO, LrGammaDeriv, RmatL, RdelL, tmpRL, weight, extCharges, blurWidths, &
       & rVec, gVec, alpha, vol, getDenseAO, getDenseAtom, getAtomIndex, &
-      & orderRmatL, Lpaired, SAstates, tNAC, isHybridXc, tExtChrg, tPeriodic, &
+      & orderRmatL, Lpaired, SAstates, tNAC, isOnsite, isHybridXc, tExtChrg, tPeriodic, &
       & tBlur, SAgrad, SIgrad, SSRgrad)
 
     !> Environment settings
@@ -2238,6 +2238,9 @@ contains
     !> Mulliken population for each microstate
     real(dp), intent(in) :: qOutputL(:,:,:,:)
 
+    !> Mulliken block charges for each microstate
+    real(dp), allocatable, intent(inout) :: qBlockL(:,:,:,:,:)
+
     !> reference atomic occupations
     real(dp), intent(in) :: q0(:,:,:)
 
@@ -2250,6 +2253,9 @@ contains
 
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
+
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
 
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
@@ -2312,6 +2318,9 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
@@ -2347,7 +2356,7 @@ contains
     real(dp), allocatable :: SP(:,:,:)
     real(dp), allocatable :: SPS(:,:,:)
 
-    integer :: nAtom, ist, nstates, nstHalf
+    integer :: nAtom, ist, nstates, nstHalf, iL
     integer :: nOrb, nOrbhalf, sparseSize, LmaxR, Lmax
 
     nAtom = size(GammaDeriv,dim=1)
@@ -2404,6 +2413,23 @@ contains
         & qOutputL, q0, GammaAO, GammaDeriv, SpinAO, tmpRmatL, tmpRdelL, &
         & weight, getDenseAO, getAtomIndex, denseDesc%iAtomStart, &
         & orderRmatL, Lpaired, SAstates, tNAC, tExtChrg, deriv1, deriv2)
+
+    if (isOnsite) then
+
+      ! rhoSqrL has (my_ud) component
+      call qm2udL(rhoSqrL, Lpaired)
+
+      ! qBlockL has (ud) component
+      do iL = 1, Lmax
+        call qm2ud(qBlockL(:,:,:,:,iL))
+      end do
+
+      ! onsite term with sparse R and T variables
+      call getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
+          & tmpRmatL, tmpRdelL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
+          & denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+
+    end if
 
     ! point charge term with sparse R and T variables
     if (tExtChrg) then
@@ -5078,6 +5104,557 @@ contains
       end subroutine getGammaDerivQ
 
   end subroutine getSccPcTerms_
+
+
+  !> Calculate R*T contribution of gradient from onsite term
+  subroutine getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
+      & RmatSpL, RdelSpL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
+      & iSquare, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+
+    !> Dense overlap derivative in AO basis
+    real(dp), intent(in) :: Sderiv(:,:,:)
+
+    !> Dense density matrix for each microstate
+    real(dp), intent(in) :: rhoSqrL(:,:,:,:)
+
+    !> Dense overlap matrix
+    real(dp), intent(in) :: overSqr(:,:)
+
+    !> Mulliken block charges for each microstate
+    real(dp), intent(in) :: qBlockL(:,:,:,:,:)
+
+    !> reference atomic occupations
+    real(dp), intent(in) :: q0(:,:,:)
+
+    !> onSiteElements in AO basis
+    real(dp), intent(in) :: OnsiteAO(:,:,:,:)
+
+    !> auxiliary matrix in AO basis related to SA-REKS term with sparse form
+    real(dp), intent(in) :: RmatSpL(:,:,:)
+
+    !> auxiliary matrix in AO basis related to state-interaction term with sparse form
+    real(dp), allocatable, intent(in) :: RdelSpL(:,:,:)
+
+    !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
+    real(dp), intent(in) :: weight(:)
+
+    !> get dense AO index from sparse AO array
+    integer, intent(in) :: getDenseAO(:,:)
+
+    !> get dense atom index from sparse atom array
+    integer, intent(in) :: getDenseAtom(:,:)
+
+    !> get atom index from AO index
+    integer, intent(in) :: getAtomIndex(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Ordering between RmatL and fillingL
+    integer, intent(in) :: orderRmatL(:)
+
+    !> Number of spin-paired microstates
+    integer, intent(in) :: Lpaired
+
+    !> Number of states used in state-averaging
+    integer, intent(in) :: SAstates
+
+    !> Calculate nonadiabatic coupling vectors
+    logical, intent(in) :: tNAC
+
+    !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
+    real(dp), intent(inout) :: deriv1(:,:,:)
+
+    !> computed tr(R*T) gradient for state-interaction term
+    real(dp), intent(inout) :: deriv2(:,:,:)
+
+    real(dp), allocatable :: deltaQBlockL(:,:,:,:,:)     ! mOrb, mOrb, nAtom, nSpin, Lmax
+
+    real(dp), allocatable :: tmpSderiv(:,:,:)            ! mOrb, mOrb, 3
+    real(dp), allocatable :: tmpSderivP(:,:,:)           ! mOrb, mOrb, 3
+    real(dp), allocatable :: tmpSderivD(:,:,:)           ! mOrb, mOrb, 3
+    real(dp), allocatable :: tmpRho(:,:,:,:)             ! mOrb, mOrb, nSpin, Lmax
+
+    real(dp), allocatable :: shiftPS(:)                  ! mOrb
+    real(dp), allocatable :: shiftMM(:,:)                ! mOrb, mOrb
+    real(dp), allocatable :: shiftOM(:,:)                ! mOrb, mOrb
+    real(dp), allocatable :: shiftIM(:,:,:)              ! mOrb, mOrb, 3
+
+    real(dp), allocatable :: tmpOver1(:,:)               ! nOrb, mOrb
+    real(dp), allocatable :: tmpOver1P(:,:)              ! nOrb, mOrb
+    real(dp), allocatable :: tmpOver1D(:,:)              ! nOrb, mOrb
+    real(dp), allocatable :: shiftIM1(:,:,:)             ! nOrb, mOrb, 3
+
+    real(dp), allocatable :: tmpOver2(:,:)               ! mOrb, nOrb
+    real(dp), allocatable :: tmpOver2P(:,:)              ! mOrb, nOrb
+    real(dp), allocatable :: tmpOver2D(:,:)              ! mOrb, nOrb
+    real(dp), allocatable :: shiftIM2(:,:,:)             ! mOrb, nOrb, 3
+
+    real(dp), allocatable :: TtermAandC(:,:,:,:)         ! mOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: TtermBandD1(:,:,:,:)        ! nOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: TtermBandD2(:,:,:,:)        ! mOrb, nOrb, 3, Lmax
+    real(dp), allocatable :: TderivL(:,:,:,:)            ! sparseSize, 3, Lmax, Ncpu
+
+    real(dp) :: sumP, sumD
+    integer :: iAtom1, iAtom2, iAtom3, iAtom4, nAtom, k, nAtomSparse
+    integer :: ist, nstates, nstHalf, mu, nu, tau, gam, kap, mOrb, nOrb
+    integer :: l, sparseSize, iSpin, nSpin, iL, Lmax, id, Ncpu
+    integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
+
+    nAtom = size(qBlockL,dim=3)
+    nAtomSparse = size(getDenseAtom,dim=1)
+    nstates = size(RmatSpL,dim=3)
+    nstHalf = nstates * (nstates - 1) /2
+
+    mOrb = size(qBlockL,dim=1)
+    nOrb = size(overSqr,dim=1)
+    sparseSize = size(RmatSpL,dim=1)
+
+    nSpin = size(qBlockL,dim=4)
+    Lmax = size(qBlockL,dim=5)
+  #:if WITH_OMP
+!$OMP PARALLEL
+    Ncpu = OMP_GET_NUM_THREADS()
+!$OMP END PARALLEL
+  #:else
+    Ncpu = 1
+  #:endif
+
+    allocate(deltaQBlockL(mOrb,mOrb,nAtom,nSpin,Lmax))
+
+    allocate(tmpSderiv(mOrb,mOrb,3))
+    allocate(tmpSderivP(mOrb,mOrb,3))
+    allocate(tmpSderivD(mOrb,mOrb,3))
+    allocate(tmpRho(mOrb,mOrb,nSpin,Lmax))
+
+    allocate(shiftPS(mOrb))
+    allocate(shiftMM(mOrb,mOrb))
+    allocate(shiftOM(mOrb,mOrb))
+    allocate(shiftIM(mOrb,mOrb,3))
+
+    allocate(tmpOver1(nOrb,mOrb))
+    allocate(tmpOver1P(nOrb,mOrb))
+    allocate(tmpOver1D(nOrb,mOrb))
+    allocate(shiftIM1(nOrb,mOrb,3))
+
+    allocate(tmpOver2(mOrb,nOrb))
+    allocate(tmpOver2P(mOrb,nOrb))
+    allocate(tmpOver2D(mOrb,nOrb))
+    allocate(shiftIM2(mOrb,nOrb,3))
+
+    allocate(TtermAandC(mOrb,mOrb,3,Lmax))
+    allocate(TtermBandD1(nOrb,mOrb,3,Lmax))
+    allocate(TtermBandD2(mOrb,nOrb,3,Lmax))
+    allocate(TderivL(sparseSize,3,Lmax,Ncpu))
+
+    ! get delta Mulliken population per block for each microstate
+    call getDeltaQBlockL(qBlockL, q0, iSquare, deltaQBlockL)
+
+    ! compute R*T shift with only up-spin part of TderivL due to symmetry
+
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,iAtTau1,iAtTau2, &
+!$OMP& iAtGam1,iAtGam2,tmpSderiv,tmpRho,tmpOver1,tmpOver2,TtermAandC, &
+!$OMP& TtermBandD1,TtermBandD2,shiftOM,shiftIM,shiftMM,shiftIM1,shiftIM2, &
+!$OMP& tmpSderivP,tmpSderivD,sumP,sumD,tmpOver1P,tmpOver1D,tmpOver2P,tmpOver2D, &
+!$OMP& shiftPS,iAtom3,iAtom4) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+    do k = 1, nAtomSparse
+
+    #:if WITH_OMP
+      id = OMP_GET_THREAD_NUM() + 1
+    #:else
+      id = 1
+    #:endif
+
+      ! set the atom indices with respect to sparsity
+      iAtom1 = getDenseAtom(k,1)
+      iAtom2 = getDenseAtom(k,2)
+
+      if (iAtom1 /= iAtom2) then
+
+        iAtTau1 = iSquare(iAtom1)
+        iAtTau2 = iSquare(iAtom1+1) - 1
+        iAtGam1 = iSquare(iAtom2)
+        iAtGam2 = iSquare(iAtom2+1) - 1
+
+        ! zeroing for temporary Sderiv
+        tmpSderiv(:,:,:) = 0.0_dp
+        do ii = 1, 3
+          tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii) &
+              & = Sderiv(iAtTau1:iAtTau2,iAtGam1:iAtGam2,ii)
+        end do
+
+        ! zeroing for temporary density matrix
+        tmpRho(:,:,:,:) = 0.0_dp
+        ! rhoSqrL has (my_ud) component
+        ! tmpRho has (my_ud) component
+        do iL = 1, Lmax
+          tmpRho(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,1,iL) &
+              & = rhoSqrL(iAtTau1:iAtTau2,iAtGam1:iAtGam2,1,iL)
+        end do
+        ! tmpRho has (ud) component
+        call udExpandL(tmpRho, Lpaired)
+
+        ! zeroing for temporary overlap matrix
+        tmpOver1(:,:) = 0.0_dp
+        tmpOver1(:,1:iAtGam2-iAtGam1+1) = overSqr(:,iAtGam1:iAtGam2)
+        ! zeroing for temporary overlap matrix
+        tmpOver2(:,:) = 0.0_dp
+        tmpOver2(1:iAtTau2-iAtTau1+1,:) = overSqr(iAtTau1:iAtTau2,:)
+
+        ! zeroing for temporary T derivative
+        TtermAandC(:,:,:,:) = 0.0_dp
+        TtermBandD1(:,:,:,:) = 0.0_dp
+        TtermBandD2(:,:,:,:) = 0.0_dp
+
+        do iL = 1, Lmax
+
+          ! 1st - a : overlap derivative
+          shiftOM(:,:) = 0.0_dp
+          do iSpin = 1, nSpin
+            shiftOM(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1) = shiftOM(1:iAtTau2-iAtTau1+1, &
+                & 1:iAtTau2-iAtTau1+1) + OnsiteAO(iAtTau1:iAtTau2,iAtTau1:iAtTau2,iSpin,1) &
+                & * deltaQBlockL(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1,iAtom1,iSpin,iL)
+          end do
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftIM(:,:,ii) = matmul( shiftOM,tmpSderiv(:,:,ii) )
+          end do
+          TtermAandC(:,:,:,iL) = TtermAandC(:,:,:,iL) + shiftIM
+
+          ! 2nd - a : overlap derivative
+          shiftOM(:,:) = 0.0_dp
+          do iSpin = 1, nSpin
+            shiftOM(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1) = shiftOM(1:iAtGam2-iAtGam1+1, &
+                & 1:iAtGam2-iAtGam1+1) + OnsiteAO(iAtGam1:iAtGam2,iAtGam1:iAtGam2,iSpin,1) &
+                & * deltaQBlockL(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1,iAtom2,iSpin,iL)
+          end do
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftIM(:,:,ii) = matmul( tmpSderiv(:,:,ii),shiftOM )
+          end do
+          TtermAandC(:,:,:,iL) = TtermAandC(:,:,:,iL) + shiftIM
+
+        end do
+
+        do iL = 1, Lmax
+
+          ! 1st - b : overlap derivative in dual density matrix
+          shiftIM2(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            do iSpin = 1, nSpin
+              ! dS * P^T + P * dS^T term
+              shiftMM(:,:) = 0.0_dp
+              shiftMM(:,:) = matmul( tmpSderiv(:,:,ii),transpose(tmpRho(:,:,iSpin,iL)) ) &
+                  & + matmul( tmpRho(:,:,iSpin,iL),transpose(tmpSderiv(:,:,ii)) )
+              shiftOM(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1) = shiftOM(1:iAtTau2-iAtTau1+1, &
+                  & 1:iAtTau2-iAtTau1+1) + 0.5_dp * OnsiteAO(iAtTau1:iAtTau2,iAtTau1:iAtTau2,iSpin,1) &
+                  & * shiftMM(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1)
+            end do
+!            call gemm(shiftIM2(:,:,ii), shiftOM, tmpOver2,1.0_dp,0.0_dp,'N','N')
+            call gemm(shiftIM2(:,:,ii), shiftOM, tmpOver2)
+          end do
+          TtermBandD2(:,:,:,iL) = TtermBandD2(:,:,:,iL) + shiftIM2
+
+          ! 2nd - b : overlap derivative in dual density matrix
+          shiftIM1(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            do iSpin = 1, nSpin
+              ! P^T * dS + dS^T * P term
+              shiftMM(:,:) = 0.0_dp
+              shiftMM(:,:) = matmul( transpose(tmpRho(:,:,iSpin,iL)),tmpSderiv(:,:,ii) ) &
+                  & + matmul( transpose(tmpSderiv(:,:,ii)),tmpRho(:,:,iSpin,iL) )
+              shiftOM(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1) = shiftOM(1:iAtGam2-iAtGam1+1, &
+                  & 1:iAtGam2-iAtGam1+1) + 0.5_dp * OnsiteAO(iAtGam1:iAtGam2,iAtGam1:iAtGam2,iSpin,1) &
+                  & * shiftMM(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1)
+            end do
+!            call gemm(shiftIM1(:,:,ii), tmpOver1, shiftOM,1.0_dp,0.0_dp,'N','N')
+            call gemm(shiftIM1(:,:,ii), tmpOver1, shiftOM)
+          end do
+          TtermBandD1(:,:,:,iL) = TtermBandD1(:,:,:,iL) + shiftIM1
+
+        end do
+
+        ! 1st - c : overlap derivative in correction of RI loss
+        ! p orbitals
+        tmpSderivP(:,:,:) = 0.0_dp
+        tmpSderivP(:,:,:) = tmpSderiv
+        do mu = 1, mOrb
+          if (.not.(mu > 1 .and. mu <= 4)) then
+            tmpSderivP(mu,:,:) = 0.0_dp
+          end if
+        end do
+        ! d orbitals
+        tmpSderivD(:,:,:) = 0.0_dp
+        if (mOrb == 9) then
+          tmpSderivD(:,:,:) = tmpSderiv
+          do mu = 1, mOrb
+            if (.not.(mu > 4 .and. mu <= 9)) then
+              tmpSderivD(mu,:,:) = 0.0_dp
+            end if
+          end do
+        end if
+
+        do iL = 1, Lmax
+          sumP = 0.0_dp
+          sumD = 0.0_dp
+          do iSpin = 1, nSpin
+            do kap = iAtTau1, iAtTau2
+              if ((kap-iAtTau1+1) > 1 .and. (kap-iAtTau1+1) <= 4) then
+                sumP = sumP + OnsiteAO(kap,kap,iSpin,1) * &
+                    & deltaQBlockL(kap-iAtTau1+1,kap-iAtTau1+1,iAtom1,iSpin,iL) / 3.0_dp
+              else if ((kap-iAtTau1+1) > 4 .and. (kap-iAtTau1+1) <= 9) then
+                sumD = sumD + OnsiteAO(kap,kap,iSpin,1) * &
+                    & deltaQBlockL(kap-iAtTau1+1,kap-iAtTau1+1,iAtom1,iSpin,iL) / 5.0_dp
+              end if
+            end do
+          end do
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftIM(:,:,ii) = - sumP * tmpSderivP(:,:,ii) - sumD * tmpSderivD(:,:,ii)
+          end do
+          TtermAandC(:,:,:,iL) = TtermAandC(:,:,:,iL) + shiftIM
+        end do
+
+        ! 2nd - c : overlap derivative in correction of RI loss
+        ! p orbitals
+        tmpSderivP(:,:,:) = 0.0_dp
+        tmpSderivP(:,:,:) = tmpSderiv
+        do nu = 1, mOrb
+          if (.not.(nu > 1 .and. nu <= 4)) then
+            tmpSderivP(:,nu,:) = 0.0_dp
+          end if
+        end do
+        ! d orbitals
+        tmpSderivD(:,:,:) = 0.0_dp
+        if (mOrb == 9) then
+          tmpSderivD(:,:,:) = tmpSderiv
+          do nu = 1, mOrb
+            if (.not.(nu > 4 .and. nu <= 9)) then
+              tmpSderivD(:,nu,:) = 0.0_dp
+            end if
+          end do
+        end if
+
+        do iL = 1, Lmax
+          sumP = 0.0_dp
+          sumD = 0.0_dp
+          do iSpin = 1, nSpin
+            do kap = iAtGam1, iAtGam2
+              if ((kap-iAtGam1+1) > 1 .and. (kap-iAtGam1+1) <= 4) then
+                sumP = sumP + OnsiteAO(kap,kap,iSpin,1) * &
+                    & deltaQBlockL(kap-iAtGam1+1,kap-iAtGam1+1,iAtom2,iSpin,iL) / 3.0_dp
+              else if ((kap-iAtGam1+1) > 4 .and. (kap-iAtGam1+1) <= 9) then
+                sumD = sumD + OnsiteAO(kap,kap,iSpin,1) * &
+                    & deltaQBlockL(kap-iAtGam1+1,kap-iAtGam1+1,iAtom2,iSpin,iL) / 5.0_dp
+              end if
+            end do
+          end do
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftIM(:,:,ii) = - sumP * tmpSderivP(:,:,ii) - sumD * tmpSderivD(:,:,ii)
+          end do
+          TtermAandC(:,:,:,iL) = TtermAandC(:,:,:,iL) + shiftIM
+        end do
+
+        ! 1st - d : overlap derivative in dual density matrix in correction of RI loss
+        ! p orbitals
+        tmpOver2P(:,:) = 0.0_dp
+        tmpOver2P(:,:) = tmpOver2
+        do mu = 1, mOrb
+          if (.not.(mu > 1 .and. mu <= 4)) then
+            tmpOver2P(mu,:) = 0.0_dp
+          end if
+        end do
+        ! d orbitals
+        tmpOver2D(:,:) = 0.0_dp
+        if (mOrb == 9) then
+          tmpOver2D(:,:) = tmpOver2
+          do mu = 1, mOrb
+            if (.not.(mu > 4 .and. mu <= 9)) then
+              tmpOver2D(mu,:) = 0.0_dp
+            end if
+          end do
+        end if
+
+        do iL = 1, Lmax
+          shiftIM2(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            sumP = 0.0_dp
+            sumD = 0.0_dp
+            do iSpin = 1, nSpin
+              shiftPS(:) = 0.0_dp
+              shiftPS(:) = sum(tmpRho(:,:,iSpin,iL)*tmpSderiv(:,:,ii),dim=2)
+              do tau = iAtTau1, iAtTau2
+                if ((tau-iAtTau1+1) > 1 .and. (tau-iAtTau1+1) <= 4) then
+                  sumP = sumP + OnsiteAO(tau,tau,iSpin,1) * &
+                      & shiftPS(tau-iAtTau1+1) / 3.0_dp
+                else if ((tau-iAtTau1+1) > 4 .and. (tau-iAtTau1+1) <= 9) then
+                  sumD = sumD + OnsiteAO(tau,tau,iSpin,1) * &
+                      & shiftPS(tau-iAtTau1+1) / 5.0_dp
+                end if
+              end do
+            end do
+            shiftIM2(:,:,ii) = - sumP * tmpOver2P - sumD * tmpOver2D
+          end do
+          TtermBandD2(:,:,:,iL) = TtermBandD2(:,:,:,iL) + shiftIM2
+        end do
+
+        ! 2nd - d : overlap derivative in dual density matrix in correction of RI loss
+        ! p orbitals
+        tmpOver1P(:,:) = 0.0_dp
+        tmpOver1P(:,:) = tmpOver1
+        do nu = 1, mOrb
+          if (.not.(nu > 1 .and. nu <= 4)) then
+            tmpOver1P(:,nu) = 0.0_dp
+          end if
+        end do
+        ! d orbitals
+        tmpOver1D(:,:) = 0.0_dp
+        if (mOrb == 9) then
+          tmpOver1D(:,:) = tmpOver1
+          do nu = 1, mOrb
+            if (.not.(nu > 4 .and. nu <= 9)) then
+              tmpOver1D(:,nu) = 0.0_dp
+            end if
+          end do
+        end if
+
+        do iL = 1, Lmax
+          shiftIM1(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            sumP = 0.0_dp
+            sumD = 0.0_dp
+            do iSpin = 1, nSpin
+              shiftPS(:) = 0.0_dp
+              shiftPS(:) = sum(tmpRho(:,:,iSpin,iL)*tmpSderiv(:,:,ii),dim=1)
+              do gam = iAtGam1, iAtGam2
+                if ((gam-iAtGam1+1) > 1 .and. (gam-iAtGam1+1) <= 4) then
+                  sumP = sumP + OnsiteAO(gam,gam,iSpin,1) * &
+                      & shiftPS(gam-iAtGam1+1) / 3.0_dp
+                else if ((gam-iAtGam1+1) > 4 .and. (gam-iAtGam1+1) <= 9) then
+                  sumD = sumD + OnsiteAO(gam,gam,iSpin,1) * &
+                      & shiftPS(gam-iAtGam1+1) / 5.0_dp
+                end if
+              end do
+            end do
+            shiftIM1(:,:,ii) = - sumP * tmpOver1P - sumD * tmpOver1D
+          end do
+          TtermBandD1(:,:,:,iL) = TtermBandD1(:,:,:,iL) + shiftIM1
+        end do
+
+        ! zeroing for temporary TderivL in each k atom pair
+        ! calculate sparse TderivL in AO basis
+        TderivL(:,:,:,id) = 0.0_dp
+        loopLL: do l = 1, sparseSize
+          
+          ! set the AO indices with respect to sparsity
+          mu = getDenseAO(l,1)
+          nu = getDenseAO(l,2)
+          ! find proper atom index
+          iAtom3 = getAtomIndex(mu)
+          iAtom4 = getAtomIndex(nu)
+
+          if (mu <= nu) then
+            do iL = 1, Lmax
+  
+              ! mu in tau and nu in gamma
+              if (iAtom3 == iAtom1 .and. iAtom4 == iAtom2) then
+                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + &
+                    & TtermAandC(mu-iAtTau1+1,nu-iAtGam1+1,:,iL)
+              end if
+  
+              ! mu in tau
+              if (iAtom3 == iAtom1) then
+                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + &
+                    & TtermBandD2(mu-iAtTau1+1,nu,:,iL)
+              end if
+              ! nu in tau
+              if (iAtom4 == iAtom1) then
+                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + &
+                    & TtermBandD2(nu-iAtTau1+1,mu,:,iL)
+              end if
+              ! mu in gamma
+              if (iAtom3 == iAtom2) then
+                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + &
+                    & TtermBandD1(nu,mu-iAtGam1+1,:,iL)
+              end if
+              ! nu in gamma
+              if (iAtom4 == iAtom2) then
+                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + &
+                    & TtermBandD1(mu,nu-iAtGam1+1,:,iL)
+              end if
+  
+            end do
+            ! end of loop iL
+          end if
+
+        end do loopLL
+        ! end of loop l
+
+        if (tNAC) then
+          do ist = 1, nstates
+            if (ist /= SAstates) then
+              call shiftRTgradSparse_(deriv1(:,:,ist), RmatSpL(:,:,ist), &
+                  & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+            end if
+          end do
+          do ist = 1, nstHalf
+            call shiftRTgradSparse_(deriv2(:,:,ist), RdelSpL(:,:,ist), &
+                & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+          end do
+        else
+          call shiftRTgradSparse_(deriv1(:,:,1), RmatSpL(:,:,1), &
+              & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+        end if
+
+      end if
+
+    end do
+    ! end of loop k
+!$OMP END PARALLEL DO
+
+    contains
+
+      !> get delta Mulliken population per block for each microstate
+      subroutine getDeltaQBlockL(qBlockL, q0, iSquare, deltaQBlockL)
+
+        !> Mulliken population per block for each microstate
+        real(dp), intent(in) :: qBlockL(:,:,:,:,:)
+
+        !> reference atomic occupations
+        real(dp), intent(in) :: q0(:,:,:)
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> delta Mulliken population per block for each microstate
+        real(dp), intent(out) :: deltaQBlockL(:,:,:,:,:)
+
+        integer :: Lmax, nSpin, nAtom, iL, iSpin, iAtom, ii, iAt1, iAt2
+
+        Lmax = size(qBlockL,dim=5)
+        nSpin = size(qBlockL,dim=4)
+        nAtom = size(qBlockL,dim=3)
+
+        deltaQBlockL(:,:,:,:,:) = qBlockL
+        do iL = 1, Lmax
+          do iSpin = 1, nSpin
+            do iAtom = 1, nAtom
+              iAt1 = iSquare(iAtom)
+              iAt2 = iSquare(iAtom+1) - 1
+              do ii = 1, iAt2 - iAt1 + 1
+                deltaQBlockL(ii,ii,iAtom,iSpin,iL) = deltaQBlockL(ii,ii,iAtom,iSpin,iL) &
+                    & - 0.5_dp * q0(ii,iAtom,1)
+              end do
+            end do
+          end do
+        end do
+
+      end subroutine getDeltaQBlockL
+
+  end subroutine getOnsiteTerms_
 
 
   !> Calculate R*T contribution of gradient from LC term with overlap derivative

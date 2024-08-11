@@ -1350,11 +1350,11 @@ module dftbp_reks_reksinterface
     call RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, &
         & iSparseStart, img2CentCell, orb, coord0, this%Hderiv, this%Sderiv, &
         & this%rhoSqrL, this%overSqr, this%deltaRhoSqrL, this%qOutputL, &
-        & q0, this%GammaAO, this%GammaDeriv, this%SpinAO, this%LrGammaAO, &
-        & this%LrGammaDeriv, this%RmatL, this%RdelL, this%tmpRL, this%weight, &
+        & this%qBlockL, q0, this%GammaAO, this%GammaDeriv, this%SpinAO, this%OnsiteAO, &
+        & this%LrGammaAO, this%LrGammaDeriv, this%RmatL, this%RdelL, this%tmpRL, this%weight, &
         & this%extCharges, this%blurWidths, this%rVec, this%gVec, this%alpha, this%volume, &
         & this%getDenseAO, this%getDenseAtom, this%getAtomIndex, this%orderRmatL, &
-        & this%Lpaired, this%SAstates, this%tNAC, this%isHybridXc, this%tExtChrg, &
+        & this%Lpaired, this%SAstates, this%tNAC, this%isOnsite, this%isHybridXc, this%tExtChrg, &
         & this%tPeriodic, this%tBlur, this%SAgrad, this%SIgrad, this%SSRgrad)
 
   end subroutine getRTGradient_
