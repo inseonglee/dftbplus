@@ -27,12 +27,13 @@ module dftbp_reks_reksgrad
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_slakocont, only : TSlakoCont
   use dftbp_dftb_sparse2dense, only : unpackHS, packHS
+  use dftbp_dftb_spin, only : qm2ud
   use dftbp_io_message, only : error
   use dftbp_math_blasroutines, only : gemm, gemv
   use dftbp_math_lapackroutines, only : getrf, getri
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : assignEpsilon, assignIndex, getTwoIndices, matAO2MO, matMO2AO,&
-      & findShellOfAO, qmExpandL
+      & findShellOfAO, qm2udL, qmExpandL, udExpandL
   use dftbp_reks_reksvar, only : reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -2187,10 +2188,10 @@ contains
   subroutine RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, coord0, Hderiv, Sderiv, rhoSqrL, overSqr, &
       & deltaRhoSqrL, qOutputL, qBlockL, q0, GammaAO, GammaDeriv, SpinAO, OnsiteAO, &
-      & LrGammaAO, LrGammaDeriv, RmatL, RdelL, tmpRL, weight, extCharges, blurWidths, &
-      & rVec, gVec, alpha, vol, getDenseAO, getDenseAtom, getAtomIndex, &
-      & orderRmatL, Lpaired, SAstates, tNAC, isOnsite, isHybridXc, tExtChrg, tPeriodic, &
-      & tBlur, SAgrad, SIgrad, SSRgrad)
+      & LrGammaAO, LrGammaDeriv, LrOnsiteAO, RmatL, RdelL, tmpRL, weight, extCharges, &
+      & blurWidths, rVec, gVec, alpha, vol, getDenseAO, getDenseAtom, getAtomIndex, &
+      & orderRmatL, Lpaired, SAstates, tNAC, isOnsite, isHybridXc, isRS_OnsCorr, &
+      & tExtChrg, tPeriodic, tBlur, SAgrad, SIgrad, SSRgrad)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2263,6 +2264,9 @@ contains
     !> long-range gamma derivative integrals
     real(dp), allocatable, intent(in) :: LrGammaDeriv(:,:,:)
 
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
+
 
     !> auxiliary matrix in AO basis related to SA-REKS term
     real(dp), intent(in) :: RmatL(:,:,:,:)
@@ -2323,6 +2327,9 @@ contains
 
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> If external charges must be considered
     logical, intent(in) :: tExtChrg
@@ -2488,6 +2495,17 @@ contains
       ! LC term (overlap derivative) with half dense R and T variables
       call getLr1stTerms_(Sderiv, deltaRhoSqrL, overSqr, LrGammaAO, SP, &
           & tmpRmatL, tmpRdelL, weight, getDenseAtom, denseDesc%iAtomStart, &
+          & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
+
+    end if
+
+    if (isRS_OnsCorr) then
+
+      ! Note that SP and R matrices are already computed
+
+      ! range-separated onsite term with half dense R and T variables
+      call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
+          & tmpRmatL, tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
           & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
 
     end if
@@ -6146,6 +6164,658 @@ contains
       end subroutine getSRmatrices
 
   end subroutine getLr2ndTerms_
+
+
+  !> Calculate R*T contribution of gradient from range-separated onsite term
+  subroutine getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
+      & RmatHalfL, RdelHalfL, weight, getDenseAtom, getAtomIndex, iSquare,&
+      & orderRmatL, SAstates, mOrb, tNAC, deriv1, deriv2)
+
+    !> Dense overlap derivative in AO basis
+    real(dp), intent(in) :: Sderiv(:,:,:)
+
+    !> Dense delta density matrix for each microstate
+    real(dp), intent(in) :: deltaRhoSqrL(:,:,:,:)
+
+    !> Dense overlap matrix
+    real(dp), intent(in) :: overSqr(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), intent(in) :: LrOnsiteAO(:,:,:)
+
+    !> Dense overlap * delta density in AO basis
+    real(dp), intent(in) :: SP(:,:,:)
+
+    !> auxiliary matrix in AO basis related to SA-REKS term with half dense form
+    real(dp), intent(in) :: RmatHalfL(:,:,:)
+
+    !> auxiliary matrix in AO basis related to state-interaction term with half dense form
+    real(dp), allocatable, intent(in) :: RdelHalfL(:,:,:)
+
+    !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
+    real(dp), intent(in) :: weight(:)
+
+    !> get dense atom index from sparse atom array
+    integer, intent(in) :: getDenseAtom(:,:)
+
+    !> get atom index from AO index
+    integer, intent(in) :: getAtomIndex(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Ordering between RmatL and fillingL
+    integer, intent(in) :: orderRmatL(:)
+
+    !> Number of states used in state-averaging
+    integer, intent(in) :: SAstates
+
+    !> Max. nr. of orbitals for any species
+    integer, intent(in) :: mOrb
+
+    !> Calculate nonadiabatic coupling vectors
+    logical, intent(in) :: tNAC
+
+    !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
+    real(dp), intent(inout) :: deriv1(:,:,:)
+
+    !> computed tr(R*T) gradient for state-interaction term
+    real(dp), intent(inout) :: deriv2(:,:,:)
+
+    real(dp), allocatable :: tmpSderiv(:,:,:)       ! mOrb, mOrb, 3
+
+    real(dp), allocatable :: tmpVec(:)
+    real(dp), allocatable :: Hvec(:)
+
+    ! TODO : this part must be changed to Sderiv??
+    real(dp), allocatable :: tmpMat(:,:)
+
+    real(dp), allocatable :: tmpMat_ss(:,:)         ! mOrb, mOrb
+    real(dp), allocatable :: tmpH_ss(:,:,:)         ! mOrb, mOrb, 3
+
+    real(dp), allocatable :: tmpMat_sl(:,:)         ! mOrb, nOrb
+    real(dp), allocatable :: tmpSP_sl(:,:)          ! mOrb, nOrb
+    real(dp), allocatable :: tmpH_sl(:,:,:)         ! mOrb, nOrb, 3
+
+    real(dp), allocatable :: tmpMat_ls(:,:)         ! nOrb, mOrb
+    real(dp), allocatable :: tmpSP_ls(:,:)          ! nOrb, mOrb
+    real(dp), allocatable :: tmpH_ls(:,:,:)         ! nOrb, mOrb, 3
+
+    real(dp), allocatable :: tmpH_ll(:,:,:)         ! nOrb, nOrb, 3
+
+    real(dp), allocatable :: shift_ss(:,:,:,:)      ! mOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: shift_sl(:,:,:,:)      ! mOrb, nOrb, 3, Lmax
+    real(dp), allocatable :: shift_ls(:,:,:,:)      ! nOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: shift_ll(:,:,:,:)      ! nOrb, nOrb, 3, Lmax
+
+    real(dp), allocatable :: TderivL(:,:,:,:)       ! nOrbHalf, 3, Lmax, Ncpu
+
+    integer :: iAtom1, iAtom2, k, nAtomSparse, ist, nstates, nstHalf
+    integer :: mu, nu, al, be, nOrb, l, nOrbHalf, iAtom3, iAtom4
+    integer :: iL, Lmax, id, Ncpu
+    integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
+
+    integer :: kap
+
+    nAtomSparse = size(getDenseAtom,dim=1)
+    nstates = size(RmatHalfL,dim=3)
+    nstHalf = nstates * (nstates - 1) /2
+
+    nOrb = size(deltaRhoSqrL,dim=1)
+    nOrbHalf = size(RmatHalfL,dim=1)
+
+    Lmax = size(deltaRhoSqrL,dim=4)
+  #:if WITH_OMP
+!$OMP PARALLEL
+    Ncpu = OMP_GET_NUM_THREADS()
+!$OMP END PARALLEL
+  #:else
+    Ncpu = 1
+  #:endif
+
+    allocate(tmpSderiv(mOrb,mOrb,3))
+
+    allocate(tmpVec(nOrb))
+    allocate(Hvec(nOrb))
+
+    ! TODO : temporary use, not needed
+    allocate(tmpMat(nOrb,nOrb))
+
+    allocate(tmpMat_ss(mOrb,mOrb))
+    allocate(tmpH_ss(mOrb,mOrb,3))
+
+    allocate(tmpMat_sl(mOrb,nOrb))
+    allocate(tmpSP_sl(mOrb,nOrb))
+    allocate(tmpH_sl(mOrb,nOrb,3))
+
+    allocate(tmpMat_ls(nOrb,mOrb))
+    allocate(tmpSP_ls(nOrb,mOrb))
+    allocate(tmpH_ls(nOrb,mOrb,3))
+
+    allocate(tmpH_ll(nOrb,nOrb,3))
+
+    allocate(shift_ss(mOrb,mOrb,3,Lmax))
+    allocate(shift_sl(mOrb,nOrb,3,Lmax))
+    allocate(shift_ls(nOrb,mOrb,3,Lmax))
+    allocate(shift_ll(nOrb,nOrb,3,Lmax))
+
+    allocate(TderivL(nOrbHalf,3,Lmax,Ncpu))
+
+    loopKK: do k = 1, nAtomSparse
+
+!    #:if WITH_OMP
+!      id = OMP_GET_THREAD_NUM() + 1
+!    #:else
+!      id = 1
+!    #:endif
+      ! TODO
+      id = 1
+
+      ! set the atom indices with respect to sparsity
+      iAtom1 = getDenseAtom(k,1)
+      iAtom2 = getDenseAtom(k,2)
+
+      if (iAtom1 /= iAtom2) then
+
+        iAtTau1 = iSquare(iAtom1)
+        iAtTau2 = iSquare(iAtom1+1) - 1
+        iAtGam1 = iSquare(iAtom2)
+        iAtGam2 = iSquare(iAtom2+1) - 1
+
+        ! zeroing for temporary Sderiv
+        tmpSderiv(:,:,:) = 0.0_dp
+        do ii = 1, 3
+          tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii) &
+              & = Sderiv(iAtTau1:iAtTau2,iAtGam1:iAtGam2,ii)
+        end do
+
+        ! zeroing for temporary shift
+        shift_ss(:,:,:,:) = 0.0_dp
+        shift_sl(:,:,:,:) = 0.0_dp
+        shift_ls(:,:,:,:) = 0.0_dp
+        shift_ll(:,:,:,:) = 0.0_dp
+
+        loopMicrostate: do iL = 1, Lmax
+
+          ! 1st term - 1, 2
+          tmpVec(:) = 0.0_dp
+          do be = 1, nOrb
+            tmpVec(be) = SP(be,be,iL)
+          end do
+          call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = iAtGam1, iAtGam2
+                shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,ii,iL) = shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,ii,iL)&
+                    & - 0.25 * tmpSderiv(mu-iAtTau1+1,nu-iAtGam1+1,ii) * (Hvec(mu) + Hvec(nu))
+              end do
+            end do
+          end do
+
+          ! 1st term - 3, 4
+          ! TODO : How to compute correct Hvec without saving all elements?
+!          tmpMat_ss(:,:) = 0.0_dp
+!          tmpMat_ss(1:iAtGam2-iAtGam1+1,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(iAtGam1:iAtGam2,iAtTau1:iAtTau2,1,iL)
+!          do ii = 1, 3
+!            call gemm(tmpH_ss(:,:,ii), tmpMat_ss, tmpSderiv(:,:,ii))
+!            tmpVec(:) = 0.0_dp
+!            do be = 1, iAtGam2-iAtGam1+1
+!              tmpVec(be) = tmpH_ss(be,be,ii)
+!            end do
+!            call gemv(Hvec, LrOnsiteAO(:,iAtGam1:iAtGam2,1), tmpVec(1:iAtGam2-iAtGam1+1))
+!          end do
+          do ii = 1, 3
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
+            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
+            call gemm(tmpH_ll(:,:,ii), deltaRhoSqrL(:,:,1,iL), tmpMat)
+            tmpVec(:) = 0.0_dp
+            do be = 1, nOrb
+              tmpVec(be) = tmpH_ll(be,be,ii)
+            end do
+            call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
+
+            do mu = 1, nOrb
+              do nu = 1, nOrb
+                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL)&
+                    & - 0.25 * overSqr(mu,nu) * (Hvec(mu) + Hvec(nu))
+              end do
+            end do
+          end do
+
+          ! 2nd term - 1
+          tmpSP_sl(:,:) = 0.0_dp
+          tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = transpose(SP(:,iAtGam1:iAtGam2,iL))
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpSP_sl)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii) * LrOnsiteAO(mu,nu,1)
+              end do
+            end do
+          end do
+
+          ! 2nd term - 2
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,1)
+          call gemm(tmpSP_sl, tmpMat_sl, overSqr)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpSP_sl)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
+              end do
+            end do
+          end do
+
+          ! 2nd term - 3
+          tmpSP_ls(:,:) = 0.0_dp
+          tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii) * LrOnsiteAO(mu,nu,1)
+              end do
+            end do
+          end do
+
+          ! 2nd term - 4
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,1)
+          call gemm(tmpSP_ls, overSqr, tmpMat_ls)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
+              end do
+            end do
+          end do
+
+          ! 3rd term - 1
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = transpose(SP(iAtTau1:iAtTau2,:,iL)) * LrOnsiteAO(:,iAtTau1:iAtTau2,1)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
+              end do
+            end do
+          end do
+
+          ! 3rd term - 2
+          ! TODO : How to compute correct Hvec without saving all elements?
+!          do ii = 1, 3
+!            tmpMat_ls(:,:) = 0.0_dp
+!            tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL)
+!            call gemm(tmpSP_ls, tmpMat_ls, tmpSderiv(:,:,ii))
+!            tmpMat_ls(:,:) = 0.0_dp
+!            tmpMat_ls(:,1:iAtGam2-iAtGam1+1) = tmpSP_ls(:,1:iAtGam2-iAtGam1+1) * LrOnsiteAO(:,iAtGam1:iAtGam2,1)
+!            tmpSP_sl(:,:) = 0.0_dp
+!            tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = overSqr(iAtGam1:iAtGam2,:)
+!            call gemm(tmpH_ll(:,:,ii), tmpMat_ls, tmpSP_sl)
+!          end do
+          do ii = 1, 3
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
+            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
+            call gemm(tmpH_ll(:,:,ii), deltaRhoSqrL(:,:,1,iL), tmpMat)
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(:,:) = tmpH_ll(:,:,ii) * LrOnsiteAO(:,:,1)
+            call gemm(tmpH_ll(:,:,ii), tmpMat, overSqr)
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = 1, nOrb
+                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL) - 0.25 * tmpH_ll(mu,nu,ii)
+              end do
+            end do
+          end do
+
+          ! 4th term - 1
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = SP(iAtGam1:iAtGam2,:,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,1)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
+              end do
+            end do
+          end do
+
+          ! 4th term - 2
+          ! TODO : How to compute correct Hvec without saving all elements?
+!          do ii = 1, 3
+!            tmpMat_sl(:,:) = 0.0_dp
+!            tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
+!            call gemm(tmpSP_sl, tmpSderiv(:,:,ii), tmpMat_sl)
+!            tmpMat_sl(:,:) = 0.0_dp
+!            tmpMat_sl(1:iAtTau2-iAtTau1+1,:) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:) * LrOnsiteAO(iAtTau1:iAtTau2,:,1)
+!            tmpSP_ls(:,:) = 0.0_dp
+!            tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = overSqr(:,iAtTau1:iAtTau2)
+!            call gemm(tmpH_ll(:,:,ii), tmpSP_ls, tmpMat_sl)
+!          end do
+          do ii = 1, 3
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
+            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
+            call gemm(tmpH_ll(:,:,ii), tmpMat, deltaRhoSqrL(:,:,1,iL))
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(:,:) = tmpH_ll(:,:,ii) * LrOnsiteAO(:,:,1)
+            call gemm(tmpH_ll(:,:,ii), overSqr, tmpMat)
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = 1, nOrb
+                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL) - 0.25 * tmpH_ll(mu,nu,ii)
+              end do
+            end do
+          end do
+
+          ! 5th term
+          ! TODO : How to compute correct Hvec without saving all elements?
+!          tmpMat_ss(:,:) = 0.0_dp
+!          tmpMat_ss(1:iAtGam2-iAtGam1+1,1:iAtTau2-iAtTau1+1) = transpose(SP(iAtTau1:iAtTau2,iAtGam1:iAtGam2,iL))
+!          do ii = 1, 3
+!            call gemm(tmpH_ss(:,:,ii), tmpSderiv(:,:,ii), tmpMat_ss)
+!            tmpVec(:) = 0.0_dp
+!            do be = 1, iAtTau2-iAtTau1+1
+!              tmpVec(be) = tmpH_ss(be,be,ii)
+!            end do
+!            call gemv(Hvec, LrOnsiteAO(:,iAtTau1:iAtTau2,1), tmpVec(1:iAtTau2-iAtTau1+1))
+!          end do
+          do ii = 1, 3
+            tmpMat(:,:) = 0.0_dp
+            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
+            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
+!            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii)
+!            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii))
+            call gemm(tmpH_ll(:,:,ii), tmpMat, SP(:,:,iL), transB="T")
+            tmpVec(:) = 0.0_dp
+            do be = 1, nOrb
+              tmpVec(be) = tmpH_ll(be,be,ii)
+            end do
+            call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
+
+            do mu = 1, nOrb
+              shift_ll(mu,mu,ii,iL) = shift_ll(mu,mu,ii,iL) - 0.5 * Hvec(mu)
+            end do
+          end do
+
+          ! 6th term - 1
+          tmpVec(:) = 0.0_dp
+          do be = 1, nOrb
+            tmpVec(be) = deltaRhoSqrL(be,be,1,iL)
+          end do
+          call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
+          tmpMat_ss(:,:) = 0.0_dp
+          do be = iAtGam1, iAtGam2
+            tmpMat_ss(be-iAtGam1+1,be-iAtGam1+1) = Hvec(be)
+          end do
+          tmpSP_sl(:,:) = 0.0_dp
+          tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = overSqr(iAtGam1:iAtGam2,:)
+          call gemm(tmpMat_sl, tmpMat_ss, tmpSP_sl)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
+              end do
+            end do
+          end do
+
+          ! 6th term - 2
+          tmpMat_ss(:,:) = 0.0_dp
+          do be = iAtTau1, iAtTau2
+            tmpMat_ss(be-iAtTau1+1,be-iAtTau1+1) = Hvec(be)
+          end do
+          tmpSP_ls(:,:) = 0.0_dp
+          tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = overSqr(:,iAtTau1:iAtTau2)
+          call gemm(tmpMat_ls, tmpSP_ls, tmpMat_ss)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
+              end do
+            end do
+          end do
+
+          ! RI loss: 1st term - 1
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+            tmpSP_sl(:,:) = 0.0_dp
+            tmpSP_sl(1:iAtTau2-iAtTau1+1,:) = tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) * LrOnsiteAO(iAtTau1:iAtTau2,:,2)
+            call gemm(tmpH_sl(:,:,ii), tmpSP_sl, overSqr)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 1st term - 2
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+            call gemm(tmpSP_sl, tmpH_sl(:,:,ii), overSqr)
+            tmpH_sl(:,:,ii) = 0.0_dp
+            tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:) * LrOnsiteAO(iAtTau1:iAtTau2,:,2)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 1st term - 3
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,2)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+            call gemm(tmpSP_sl, tmpH_sl(:,:,ii), overSqr)
+            tmpH_sl(:,:,ii) = 0.0_dp
+            tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 1st term - 4
+          tmpMat_sl(:,:) = 0.0_dp
+          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = transpose(SP(:,iAtGam1:iAtGam2,iL)) * LrOnsiteAO(iAtGam1:iAtGam2,:,2)
+          do ii = 1, 3
+            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
+          end do
+
+          do ii = 1, 3
+            do mu = iAtTau1, iAtTau2
+              do nu = 1, nOrb
+                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
+                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 2nd term - 1
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,2)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 2nd term - 2
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL)
+          do ii = 1, 3
+            call gemm(tmpSP_ls, tmpMat_ls, tmpSderiv(:,:,ii))
+            tmpH_ls(:,:,ii) = 0.0_dp
+            tmpH_ls(:,1:iAtGam2-iAtGam1+1,ii) = tmpSP_ls(:,1:iAtGam2-iAtGam1+1) * LrOnsiteAO(:,iAtGam1:iAtGam2,2)
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 2nd term - 3
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,2)
+          call gemm(tmpSP_ls, overSqr, tmpMat_ls)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+          ! RI loss: 2nd term - 4
+          tmpMat_ls(:,:) = 0.0_dp
+          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL)
+          do ii = 1, 3
+            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
+            tmpSP_ls(:,:) = 0.0_dp
+            tmpSP_ls(:,1:iAtGam2-iAtGam1+1) = tmpH_ls(:,1:iAtGam2-iAtGam1+1,ii) * LrOnsiteAO(:,iAtGam1:iAtGam2,2)
+            call gemm(tmpH_ls(:,:,ii), overSqr, tmpSP_ls)
+          end do
+
+          do ii = 1, 3
+            do mu = 1, nOrb
+              do nu = iAtGam1, iAtGam2
+                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
+                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+              end do
+            end do
+          end do
+
+        end do loopMicrostate
+
+        ! zeroing for temporary TderivL in each k atom pair
+        ! calculate half dense TderivL in AO basis
+        TderivL(:,:,:,id) = 0.0_dp
+        loopLL: do l = 1, nOrbHalf
+
+          call getTwoIndices(nOrb, l, mu, nu, 2)
+          ! find proper atom index
+          iAtom3 = getAtomIndex(mu)
+          iAtom4 = getAtomIndex(nu)
+
+          if (iAtom3 == iAtom1 .and. iAtom4 == iAtom2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,:,:)
+          end if
+
+          if (iAtom3 == iAtom1) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_sl(mu-iAtTau1+1,nu,:,:)
+          end if
+          if (iAtom4 == iAtom1) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_sl(nu-iAtTau1+1,mu,:,:)
+          end if
+          if (iAtom3 == iAtom2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ls(nu,mu-iAtGam1+1,:,:)
+          end if
+          if (iAtom4 == iAtom2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ls(mu,nu-iAtGam1+1,:,:)
+          end if
+
+          TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ll(mu,nu,:,:)
+
+        end do loopLL
+
+        if (tNAC) then
+          do ist = 1, nstates
+            if (ist /= SAstates) then
+              call shiftRTgradSparse_(deriv1(:,:,ist), RmatHalfL(:,:,ist), &
+                  & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+            end if
+          end do
+          do ist = 1, nstHalf
+            call shiftRTgradSparse_(deriv2(:,:,ist), RdelHalfL(:,:,ist), &
+                & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+          end do
+        else
+          call shiftRTgradSparse_(deriv1(:,:,1), RmatHalfL(:,:,1), &
+              & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+        end if
+
+      end if
+
+    end do loopKK
+
+  end subroutine getLrOnsiteTerms_
 
 
   !> Calculate R*T contribution of gradient from pc terms

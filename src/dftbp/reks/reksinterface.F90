@@ -1347,15 +1347,15 @@ module dftbp_reks_reksinterface
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
-    call RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, &
-        & iSparseStart, img2CentCell, orb, coord0, this%Hderiv, this%Sderiv, &
-        & this%rhoSqrL, this%overSqr, this%deltaRhoSqrL, this%qOutputL, &
-        & this%qBlockL, q0, this%GammaAO, this%GammaDeriv, this%SpinAO, this%OnsiteAO, &
-        & this%LrGammaAO, this%LrGammaDeriv, this%RmatL, this%RdelL, this%tmpRL, this%weight, &
-        & this%extCharges, this%blurWidths, this%rVec, this%gVec, this%alpha, this%volume, &
-        & this%getDenseAO, this%getDenseAtom, this%getAtomIndex, this%orderRmatL, &
-        & this%Lpaired, this%SAstates, this%tNAC, this%isOnsite, this%isHybridXc, this%tExtChrg, &
-        & this%tPeriodic, this%tBlur, this%SAgrad, this%SIgrad, this%SSRgrad)
+    call RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+        & img2CentCell, orb, coord0, this%Hderiv, this%Sderiv, this%rhoSqrL, this%overSqr, &
+        & this%deltaRhoSqrL, this%qOutputL, this%qBlockL, q0, this%GammaAO, this%GammaDeriv, &
+        & this%SpinAO, this%OnsiteAO, this%LrGammaAO, this%LrGammaDeriv, this%LrOnsiteAO, &
+        & this%RmatL, this%RdelL, this%tmpRL, this%weight, this%extCharges, this%blurWidths, &
+        & this%rVec, this%gVec, this%alpha, this%volume, this%getDenseAO, this%getDenseAtom, &
+        & this%getAtomIndex, this%orderRmatL, this%Lpaired, this%SAstates, this%tNAC, &
+        & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, this%tExtChrg, this%tPeriodic, &
+        & this%tBlur, this%SAgrad, this%SIgrad, this%SSRgrad)
 
   end subroutine getRTGradient_
 
