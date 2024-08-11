@@ -1485,7 +1485,7 @@ contains
   subroutine getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, &
       & HxcHalfD, HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, LrGammaAO, &
-      & orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, isHybridXc, ZmatL)
+      & orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, ZmatL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1559,6 +1559,9 @@ contains
     !> Save 'A' and 'Hxc' to memory in gradient calculation
     logical, intent(in) :: tSaveMem
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
@@ -1570,7 +1573,7 @@ contains
 
       if (tSaveMem) then
 
-        if (isHybridXc) then
+        if (isHybridXc .or. isOnsite) then
 
           call getZmatHalf_(HxcHalfS, HxcHalfD, orderRmatL, Lpaired, RmatL, ZmatL)
 
