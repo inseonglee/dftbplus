@@ -614,7 +614,7 @@ contains
     ! If atomic order changes, partial charges need to be initialised, else wrong charge will be
     ! associated with each atom
     call initReferenceCharges(main%species0, main%orb, main%referenceN0, main%nSpin, main%q0,&
-        & main%qShell0)
+        & main%qShell0, main%reks)
     call initElectronNumber(main%q0, main%nrChrg, main%nrSpinPol, main%nSpin, main%orb,&
         & main%nEl0, main%nEl)
     call main%initializeCharges(errStatus)

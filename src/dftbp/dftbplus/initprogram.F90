@@ -1677,7 +1677,7 @@ contains
 
     this%atomOrderMatters = this%atomOrderMatters .or. allocated(input%ctrl%customOccAtoms)
     call initReferenceCharges(this%species0, this%orb, this%referenceN0, this%nSpin, this%q0,&
-        & this%qShell0, input%ctrl%customOccAtoms, input%ctrl%customOccFillings)
+        & this%qShell0, this%reks, input%ctrl%customOccAtoms, input%ctrl%customOccFillings)
 
     this%nrChrg = input%ctrl%nrChrg
     this%nrSpinPol = input%ctrl%nrSpinPol
@@ -4544,8 +4544,8 @@ contains
 
 
   ! Assign reference charge arrays, q0 and qShell0
-  subroutine initReferenceCharges(species0, orb, referenceN0, nSpin, q0, qShell0, customOccAtoms,&
-      & customOccFillings)
+  subroutine initReferenceCharges(species0, orb, referenceN0, nSpin, q0, qShell0, reks,&
+      & customOccAtoms, customOccFillings)
 
     !> Species of central cell atoms
     integer, intent(in) :: species0(:)
@@ -4565,6 +4565,9 @@ contains
     !> Shell resolved neutral reference
     real(dp), allocatable, intent(out) :: qShell0(:,:)
 
+    !> Data type for REKS
+    type(TReksCalc), allocatable, intent(in) :: reks
+
     !> Array of lists of atoms where the 'neutral' shell occupation is modified
     type(TWrappedInt1), optional, intent(in) :: customOccAtoms(:)
 
@@ -4576,7 +4579,13 @@ contains
     @:ASSERT(present(customOccAtoms) .eqv. present(customOccFillings))
 
     nAtom = size(orb%nOrbAtom)
-    allocate(q0(orb%mOrb, nAtom, nSpin))
+    if (allocated(reks)) then
+      ! For REKS calculation, both spins are required. However,
+      ! nSpin = 1 at the moment, thus size of two is directly allocated
+      allocate(q0(orb%mOrb, nAtom, 2))
+    else
+      allocate(q0(orb%mOrb, nAtom, nSpin))
+    end if
     q0(:,:,:) = 0.0_dp
     if (present(customOccAtoms)) then
       call applyCustomReferenceOccupations(customOccAtoms, customOccFillings, species0, orb,&

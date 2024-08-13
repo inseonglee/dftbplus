@@ -676,7 +676,7 @@ contains
       end do loopB
     end do loopA
 
-    if (this%tSpin) then
+    if (this%tSpin .or. this%tREKS) then
       gradients(:,:) = gradients - 0.25_dp * tmpDeriv
     else
       gradients(:,:) = gradients - 0.125_dp * tmpDeriv
