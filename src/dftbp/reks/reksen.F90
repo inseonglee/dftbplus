@@ -127,22 +127,28 @@ module dftbp_reks_reksen
     integer :: ist
 
     ! Compute the energy contributions for target SA-REKS state
-    ! electronic energy = nonSCC + scc + spin + 3rd + fock
+    ! electronic energy = nonSCC + scc + spin + 3rd + fock + onsite
     energy%EnonSCC = sum(this%weightL(this%rstate,:)*this%enLnonSCC(:))
     energy%Escc = sum(this%weightL(this%rstate,:)*this%enLscc(:))
     energy%Espin = sum(this%weightL(this%rstate,:)*this%enLspin(:))
     if (this%t3rd) then
       energy%e3rd = sum(this%weightL(this%rstate,:)*this%enL3rd(:))
     end if
+    if (this%isOnsite) then
+      energy%eOnSite = sum(this%weightL(this%rstate,:)*this%enLonSite(:))
+    end if
     if (this%isHybridXc) then
       energy%Efock = sum(this%weightL(this%rstate,:)*this%enLfock(:))
+    end if
+    if (this%isRS_OnsCorr) then
+      energy%EfockOnSite = sum(this%weightL(this%rstate,:)*this%enLfockOnSite(:))
     end if
     if (this%isDispersion) then
       energy%Edisp = sum(this%weightL(this%rstate,:)*this%enLdisp(:))
     end if
 
     energy%Eelec = energy%EnonSCC + energy%Escc + energy%Espin + &
-        & energy%e3rd + energy%Efock
+        & energy%e3rd + energy%eOnSite + energy%Efock + energy%EfockOnSite
     energy%Etotal = energy%Eelec + energy%Erep + energy%Edisp
 
     ! Compute the total energy for SA-REKS states
