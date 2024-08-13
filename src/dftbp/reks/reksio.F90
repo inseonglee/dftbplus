@@ -44,8 +44,9 @@ module dftbp_reks_reksio
 
     integer :: iL
 
-    write(stdOut,'(1x,A,5x,A,9x,A,9x,A,9x,A,10x,A,9x,A,10x,A,8x,A)') &
-        & "iL", "nonSCC", "SCC", "spin", "3rd", "fock", "Rep", "Disp", "Total"
+    write(stdOut,'(1x,A,5x,A,9x,A,9x,A,9x,A,9x,A,8x,A,8x,A,7x,A,10x,A,8x,A)') &
+        & "iL", "nonSCC", "SCC", "spin", "3rd", "onsite", "fock", "fockOns", &
+        & "Rep", "Disp", "Total"
     do iL = 1, this%Lmax
       write(stdOut,'(I3,7(f13.8))',advance="no") iL, this%enLnonSCC(iL), &
           & this%enLscc(iL), this%enLspin(iL)
@@ -54,8 +55,18 @@ module dftbp_reks_reksio
       else
         write(stdOut,'(1(f13.8))',advance="no") 0.0_dp
       end if
+      if (this%isOnsite) then
+        write(stdOut,'(1(f13.8))',advance="no") this%enLonSite(iL)
+      else
+        write(stdOut,'(1(f13.8))',advance="no") 0.0_dp
+      end if
       if (this%isHybridXc) then
         write(stdOut,'(1(f13.8))',advance="no") this%enLfock(iL)
+      else
+        write(stdOut,'(1(f13.8))',advance="no") 0.0_dp
+      end if
+      if (this%isRS_OnsCorr) then
+        write(stdOut,'(1(f13.8))',advance="no") this%enLfockOnsite(iL)
       else
         write(stdOut,'(1(f13.8))',advance="no") 0.0_dp
       end if
