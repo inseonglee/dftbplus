@@ -298,7 +298,7 @@ contains
     end if
 
     ! Add long-range onsite contribution from range separated calculations
-    if (allocated(rsOnsCorr)) then
+    if (allocated(rsOnsCorr) .and. .not. allocated(reks)) then
       energy%EfockOnSite = 0.0_dp
       call rsOnsCorr%addLrOcEnergy(energy%EfockOnSite)
     end if

@@ -2964,8 +2964,9 @@ contains
           & this%isLinResp, this%doPerturbation, this%solvation, this%reks)
       allocate(this%rsOnsCorr)
       call RangeSepOnsCorrFunc_init(this%rsOnsCorr, this%orb, this%denseDesc%iAtomStart,&
-          & this%species0, this%onSiteElements, this%tSpin, input%ctrl%hybridXcInp%hybridXcAlg,&
-          & input%ctrl%hybridXcInp%hybridXcType, input%ctrl%hybridXcInp%gammaType)
+          & this%species0, this%onSiteElements, this%tSpin, allocated(this%reks),&
+          & input%ctrl%hybridXcInp%hybridXcAlg, input%ctrl%hybridXcInp%hybridXcType,&
+          & input%ctrl%hybridXcInp%gammaType)
     end if
 
     ! Initialise images (translations)

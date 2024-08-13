@@ -41,6 +41,9 @@ module dftbp_dftb_rangeseponscorr
     !> Is this spin restricted (F) or unrestricted (T)
     logical :: tSpin
 
+    !> Is this a DFTB/REKS calculation (true)?
+    logical :: tREKS
+
     !> Algorithm for RSH-Hamiltonian construction (and, if applicable, force calculation)
     integer :: hybridXcAlg
 
@@ -64,7 +67,7 @@ contains
 
   !> Intitialize the onsite correction with range-separated hybrid functional module
   subroutine RangeSepOnsCorrFunc_init(this, orb, iSquare, species, onSiteElements, tSpin,&
-      hybridXcAlg, hybridXcType, gammaType)
+      tREKS, hybridXcAlg, hybridXcType, gammaType)
 
     !> class instance
     type(TRangeSepOnsCorrFunc), intent(inout) :: this
@@ -84,6 +87,9 @@ contains
     !> Is this spin restricted (F) or unrestricted (T)
     logical, intent(in) :: tSpin
 
+    !> Is this DFTB/SSR formalism
+    logical, intent(in) :: tREKS
+
     !> lr-Hamiltonian construction algorithm
     integer, intent(in) :: hybridXcAlg
 
@@ -94,12 +100,12 @@ contains
     integer, intent(in) :: gammaType
 
     call checkRequirements(this, orb, hybridXcAlg, hybridXcType, gammaType)
-    call initAndAllocate(this, orb, iSquare, species, onSiteElements, tSpin)
+    call initAndAllocate(this, orb, iSquare, species, onSiteElements, tSpin, tREKS)
 
   contains
 
     !> initialise data structures
-    subroutine initAndAllocate(this, orb, iSquare, species, onSiteElements, tSpin)
+    subroutine initAndAllocate(this, orb, iSquare, species, onSiteElements, tSpin, tREKS)
 
       !> class instance
       class(TRangeSepOnsCorrFunc), intent(inout) :: this
@@ -119,6 +125,9 @@ contains
       !> Is this spin restricted (F) or unrestricted (T)
       logical, intent(in) :: tSpin
 
+      !> Is this DFTB/SSR formalism
+      logical, intent(in) :: tREKS
+
       real(dp) :: fac
       integer :: nAtom, iAtom, nOrb, ii, jj, iOrb, jOrb, iSh1, iSh2
 
@@ -127,6 +136,7 @@ contains
 
       this%lrOcEnergy = 0.0_dp
       this%tSpin = tSpin
+      this%tREKS = tREKS
 
       ! Set onsite constant matrices
       allocate(this%Omat0(nOrb,nOrb))
@@ -423,7 +433,7 @@ contains
       tmpMat(:,:) = PS * this%OmatRI
       call gemm(HlrOC, Smat, tmpMat, alpha=fac, beta=1.0_dp)
 
-      if (this%tSpin) then
+      if (this%tSpin .or. this%tREKS) then
         HlrOC(:,:) = -0.25_dp * HlrOC
       else
         HlrOC(:,:) = -0.125_dp * HlrOC
