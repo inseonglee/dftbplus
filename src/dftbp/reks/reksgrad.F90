@@ -537,6 +537,42 @@ contains
       end do
     end do
 
+    if (isOnsite) then
+
+      ! Set onsite constant with full-range Hxc kernel
+      OnsiteAO(:,:,:,:) = 0.0_dp
+      do mu = 1, nOrb
+        do nu = mu, nOrb
+          ! find proper atom index
+          G1 = getAtomIndex(mu)
+          G2 = getAtomIndex(nu)
+          if (G1 == G2) then
+
+            ! set the orbital shell for mu index
+            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
+            ! set the orbital shell for nu index
+            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+
+            do iSpin = 1, size(OnsiteAO,dim=3)
+
+              OnsiteAO(nu,mu,iSpin,1) = onSiteElements(iSp2,iSp1,iSpin,species(G1))
+
+              if (iSp1 == 2 .and. iSp2 == 2) then
+                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) / 6.0_dp
+              end if
+
+              if (nu /= mu) then
+                OnsiteAO(mu,nu,iSpin,:) = OnsiteAO(nu,mu,iSpin,:)
+              end if
+
+            end do
+
+          end if
+        end do
+      end do
+
+    end if
+
     if (isHybridXc) then
 
       ! get total CAM gamma
@@ -556,42 +592,6 @@ contains
       call hybridXc%getCamGammaDerivCluster(LrGammaDeriv)
       do ii = 1, 3
         call adjointLowerTriangle(LrGammaDeriv(:,:,ii))
-      end do
-
-    end if
-
-    if (isOnsite) then
-
-      ! Set onsite constant with full-range Hxc kernel
-      OnsiteAO(:,:,:,:) = 0.0_dp
-      do mu = 1, nOrb
-        do nu = mu, nOrb
-          ! find proper atom index
-          G1 = getAtomIndex(mu)
-          G2 = getAtomIndex(nu)
-          if (G1 == G2) then
-
-            ! set the orbital shell for mu index
-            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
-            ! set the orbital shell for nu index
-            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
-
-            do iSpin = 1, size(onSiteElements,dim=3)
-
-              OnSiteAO(nu,mu,iSpin,1) = onSiteElements(iSp2,iSp1,iSpin,species(G1))
-
-              if (iSp1 == 2 .and. iSp2 == 2) then
-                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) / 6.0_dp
-              end if
-
-              if (nu /= mu) then
-                OnSiteAO(mu,nu,iSpin,:) = OnSiteAO(nu,mu,iSpin,:)
-              end if
-
-            end do
-
-          end if
-        end do
       end do
 
     end if
@@ -2976,11 +2976,14 @@ contains
 
     ! LC variables
     real(dp) :: tmpL1, tmpL2, tmpL3, tmpL4
-    real(dp) :: tmpvalue1, tmpvalue2
 
     ! onsite variables
-    real(dp) :: tmpO1s, tmpO2s, tmpO3s
-    real(dp) :: tmpO1d, tmpO2d, tmpO3d
+    real(dp) :: tmpO1s, tmpO2s, tmpO3s, tmpO4s
+    real(dp) :: tmpO1d, tmpO2d, tmpO3d, tmpO4d
+
+    ! common variables
+    real(dp) :: tmpvalue1s, tmpvalue2s
+    real(dp) :: tmpvalue1d
 
     nOrb = size(overSqr,dim=1)
     sparseSize = size(getDenseAO,dim=1)
@@ -2990,10 +2993,11 @@ contains
     HxcHalfS(:,:) = 0.0_dp
     HxcHalfD(:,:) = 0.0_dp
 
-    ! scc, spin, onsite part
+    ! scc, spin, onsite terms
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,k,tau,gam,l, &
 !$OMP& tmpG1,tmpG2,tmpG3,tmpG4,tmpS1,tmpS2,tmpS3,tmpS4, &
-!$OMP& tmpO3s,tmpO3d) SCHEDULE(RUNTIME)
+!$OMP& tmpvalue1s,tmpvalue1d,tmpO1s,tmpO2s,tmpO3s,tmpO4s, &
+!$OMP& tmpO1d,tmpO2d,tmpO3d,tmpO4d) SCHEDULE(RUNTIME)
     do ii = 1, sparseSize
 
       ! set the AO indices with respect to sparsity
@@ -3016,13 +3020,13 @@ contains
             ! calculate the index in terms of half dense form
             l = (tau-1)*nOrb - tau*(tau-1)/2 + gam
 
-            ! scc part
+            ! scc terms
             tmpG1 = GammaAO(mu,tau)
             tmpG2 = GammaAO(nu,tau)
             tmpG3 = GammaAO(mu,gam)
             tmpG4 = GammaAO(nu,gam)
 
-            ! spin part
+            ! spin terms
             tmpS1 = SpinAO(mu,tau)
             tmpS2 = SpinAO(nu,tau)
             tmpS3 = SpinAO(mu,gam)
@@ -3036,14 +3040,24 @@ contains
 
             if (isOnsite) then
 
-              ! onsite part
-              tmpO3s = overSqr(mu,nu) * overSqr(tau,gam) * (OnsiteAO(mu,tau,1,2) + &
-                  & OnsiteAO(nu,tau,1,2) + OnsiteAO(mu,gam,1,2) + OnsiteAO(nu,gam,1,2))
-              tmpO3d = overSqr(mu,nu) * overSqr(tau,gam) * (OnsiteAO(mu,tau,2,2) + &
-                  & OnsiteAO(nu,tau,2,2) + OnsiteAO(mu,gam,2,2) + OnsiteAO(nu,gam,2,2))
+              ! full-range onsite terms
+              tmpO1s = OnsiteAO(mu,tau,1,2)
+              tmpO2s = OnsiteAO(nu,tau,1,2)
+              tmpO3s = OnsiteAO(mu,gam,1,2)
+              tmpO4s = OnsiteAO(nu,gam,1,2)
 
-              HxcHalfS(k,l) = HxcHalfS(k,l) - tmpO3s
-              HxcHalfD(k,l) = HxcHalfD(k,l) - tmpO3d
+              tmpO1d = OnsiteAO(mu,tau,2,2)
+              tmpO2d = OnsiteAO(nu,tau,2,2)
+              tmpO3d = OnsiteAO(mu,gam,2,2)
+              tmpO4d = OnsiteAO(nu,gam,2,2)
+
+              tmpvalue1s = overSqr(mu,nu) * overSqr(tau,gam) * &
+                  & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+              tmpvalue1d = overSqr(mu,nu) * overSqr(tau,gam) * &
+                  & (tmpO1d + tmpO2d + tmpO3d + tmpO4d)
+
+              HxcHalfS(k,l) = HxcHalfS(k,l) - tmpvalue1s
+              HxcHalfD(k,l) = HxcHalfD(k,l) - tmpvalue1d
 
             end if
 
@@ -3060,8 +3074,9 @@ contains
     if (isHybridXc) then
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam,tmp22, &
-!$OMP& tmpL1,tmpL2,tmpL3,tmpL4,tmpvalue1,tmpvalue2,kap, &
-!$OMP& tmpO1s,tmpO2s,tmpO3s) SCHEDULE(RUNTIME)
+!$OMP& tmpL1,tmpL2,tmpL3,tmpL4,kap,tmpvalue1s,tmpvalue2s, &
+!$OMP& tmpvalue1d,tmpO1s,tmpO2s,tmpO3s,tmpO4s, &
+!$OMP& tmpO1d,tmpO2d,tmpO3d,tmpO4d) SCHEDULE(RUNTIME)
       do k = 1, nOrbHalf
 
         call getTwoIndices(nOrb, k, mu, nu, 2)
@@ -3081,144 +3096,195 @@ contains
           if (isHybridXc) then
 
             ! (mu,nu,tau,gam)
-            tmpvalue1 = 0.0_dp
-            if (abs(overSqr(mu,tau)) >= epsilon(1.0_dp) .and. &
-                & abs(overSqr(nu,gam)) >= epsilon(1.0_dp)) then
-              tmpL1 = LrGammaAO(mu,gam)
-              tmpL2 = LrGammaAO(mu,nu)
-              tmpL3 = LrGammaAO(tau,gam)
-              tmpL4 = LrGammaAO(tau,nu)
-              tmpvalue1 = -0.125_dp * overSqr(mu,tau) * &
-                  & overSqr(nu,gam) * (tmpL1+tmpL2+tmpL3+tmpL4)
-            end if
-
-            ! (mu,nu,gam,tau)
-            tmpvalue2 = 0.0_dp
+            tmpvalue1s = 0.0_dp
             if (abs(overSqr(mu,gam)) >= epsilon(1.0_dp) .and. &
-                & abs(overSqr(nu,tau)) >= epsilon(1.0_dp)) then
+                & abs(overSqr(tau,nu)) >= epsilon(1.0_dp)) then
               tmpL1 = LrGammaAO(mu,tau)
               tmpL2 = LrGammaAO(mu,nu)
               tmpL3 = LrGammaAO(gam,tau)
               tmpL4 = LrGammaAO(gam,nu)
-              tmpvalue2 = -0.125_dp * overSqr(mu,gam) * &
-                  & overSqr(nu,tau) * (tmpL1+tmpL2+tmpL3+tmpL4)
+              tmpvalue1s = 0.125_dp * overSqr(mu,gam) * &
+                  & overSqr(tau,nu) * (tmpL1+tmpL2+tmpL3+tmpL4)
             end if
 
-            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpvalue1 + tmpvalue2
+            ! (mu,nu,gam,tau)
+            tmpvalue2s = 0.0_dp
+            if (abs(overSqr(mu,tau)) >= epsilon(1.0_dp) .and. &
+                & abs(overSqr(gam,nu)) >= epsilon(1.0_dp)) then
+              tmpL1 = LrGammaAO(mu,gam)
+              tmpL2 = LrGammaAO(mu,nu)
+              tmpL3 = LrGammaAO(tau,gam)
+              tmpL4 = LrGammaAO(tau,nu)
+              tmpvalue2s = 0.125_dp * overSqr(mu,tau) * &
+                  & overSqr(gam,nu) * (tmpL1+tmpL2+tmpL3+tmpL4)
+            end if
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) - tmpvalue1s - tmpvalue2s
 
           end if
 
-          ! onsite terms
+          ! full-range onsite terms
           if (isOnsite) then
 
-            tmpO1s = 0.25_dp * overSqr(mu,gam) * overSqr(nu,tau) * &
-                & (OnsiteAO(mu,tau,1,1) + OnsiteAO(nu,gam,1,1))
-            tmpO1d = 0.25_dp * overSqr(mu,gam) * overSqr(nu,tau) * &
-                & (OnsiteAO(mu,tau,2,1) + OnsiteAO(nu,gam,2,1))
+            tmpO1s = OnsiteAO(mu,tau,1,1)
+            tmpO2s = OnsiteAO(nu,gam,1,1)
+            tmpO3s = OnsiteAO(mu,gam,1,1)
+            tmpO4s = OnsiteAO(nu,tau,1,1)
 
-            tmpO2s = 0.0_dp
-            tmpO2d = 0.0_dp
+            tmpvalue1s = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3s + tmpO4s)
 
-            do kap = 1, nOrb
+            tmpO1d = OnsiteAO(mu,tau,2,1)
+            tmpO2d = OnsiteAO(nu,gam,2,1)
+            tmpO3d = OnsiteAO(mu,gam,2,1)
+            tmpO4d = OnsiteAO(nu,tau,2,1)
 
-              if (mu == tau) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(nu,kap) * &
-                    overSqr(kap,gam) * OnsiteAO(mu,kap,1,1)
-                tmpO2d = tmpO2d + 0.25_dp * overSqr(nu,kap) * &
-                    overSqr(kap,gam) * OnsiteAO(mu,kap,2,1)
-              end if
+            tmpvalue1d = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1d + tmpO2d) &
+                & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3d + tmpO4d)
 
-              if (nu == tau) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,gam) * OnsiteAO(nu,kap,1,1)
-                tmpO2d = tmpO2d + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,gam) * OnsiteAO(nu,kap,2,1)
-              end if
+            HxcHalfS(k,l) = HxcHalfS(k,l) + 0.25_dp * tmpvalue1s
+            HxcHalfD(k,l) = HxcHalfD(k,l) + 0.25_dp * tmpvalue1d
 
-            end do
+            tmpvalue1s = 0.0_dp
+            tmpvalue1d = 0.0_dp
+            if (mu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,gam) &
+                    & * OnsiteAO(mu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,gam) &
+                    & * OnsiteAO(mu,kap,2,1)
+              end do
+            end if
+            if (mu == gam) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,tau) &
+                    & * OnsiteAO(mu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,tau) &
+                    & * OnsiteAO(mu,kap,2,1)
+              end do
+            end if
+            if (nu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * OnsiteAO(nu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * OnsiteAO(nu,kap,2,1)
+              end do
+            end if
+            if (nu == gam) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * OnsiteAO(nu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * OnsiteAO(nu,kap,2,1)
+              end do
+            end if
 
-            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s
-            HxcHalfD(k,l) = HxcHalfD(k,l) + tmpO1d + tmpO2d
-
-            tmpO1s = 0.25_dp * overSqr(mu,tau) * overSqr(nu,gam) * &
-                & (OnsiteAO(mu,gam,1,1) + OnsiteAO(nu,tau,1,1))
-            tmpO1d = 0.25_dp * overSqr(mu,tau) * overSqr(nu,gam) * &
-                & (OnsiteAO(mu,gam,2,1) + OnsiteAO(nu,tau,2,1))
-
-            tmpO2s = 0.0_dp
-            tmpO2d = 0.0_dp
-
-            do kap = 1, nOrb
-
-              if (mu == gam) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(nu,kap) * &
-                    overSqr(kap,tau) * OnsiteAO(mu,kap,1,1)
-                tmpO2d = tmpO2d + 0.25_dp * overSqr(nu,kap) * &
-                    overSqr(kap,tau) * OnsiteAO(mu,kap,2,1)
-              end if
-
-              if (nu == gam) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,tau) * OnsiteAO(nu,kap,1,1)
-                tmpO2d = tmpO2d + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,tau) * OnsiteAO(nu,kap,2,1)
-              end if
-
-            end do
-
-            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s
-            HxcHalfD(k,l) = HxcHalfD(k,l) + tmpO1d + tmpO2d
+            HxcHalfS(k,l) = HxcHalfS(k,l) + 0.25_dp * tmpvalue1s
+            HxcHalfD(k,l) = HxcHalfD(k,l) + 0.25_dp * tmpvalue1d
 
           end if
 
           ! long-range onsite terms
           if (isRS_OnsCorr) then
 
-            tmpO1s = 0.25_dp * overSqr(mu,nu) * overSqr(gam,tau) * &
-                & (LrOnsiteAO(mu,tau,1) + LrOnsiteAO(gam,nu,1))
+            ! (mu,nu,tau,gam)
+            tmpO1s = LrOnsiteAO(mu,tau,1)
+            tmpO2s = LrOnsiteAO(gam,nu,1)
+            tmpO3s = LrOnsiteAO(mu,nu,1)
+            tmpO4s = LrOnsiteAO(gam,tau,1)
 
-            tmpO2s = 0.0_dp
-            do kap = 1, nOrb
+            tmpvalue1s = overSqr(mu,nu) * overSqr(gam,tau) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,tau) * overSqr(gam,nu) * (tmpO3s + tmpO4s)
 
-              if (mu == tau) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(gam,kap) * &
-                    overSqr(kap,nu) * LrOnsiteAO(mu,kap,1)
-              end if
+            HxcHalfS(k,l) = HxcHalfS(k,l) - 0.125_dp * tmpvalue1s
 
-              if (gam == tau) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,nu) * LrOnsiteAO(gam,kap,1)
-              end if
+            tmpvalue1s = 0.0_dp
+            if (mu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,gam) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (mu == nu) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,gam) * overSqr(kap,tau) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (gam == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(gam,kap,1)
+              end do
+            end if
+            if (gam == nu) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * LrOnsiteAO(gam,kap,1)
+              end do
+            end if
 
-            end do
+            HxcHalfS(k,l) = HxcHalfS(k,l) - 0.125_dp * tmpvalue1s
 
-            tmpO3s = overSqr(mu,gam) * overSqr(tau,nu) * &
-                (LrOnsiteAO(mu,tau,2) + LrOnsiteAO(gam,tau,2))
+            tmpO1s = LrOnsiteAO(mu,tau,2)
+            tmpO2s = LrOnsiteAO(mu,nu,2)
+            tmpO3s = LrOnsiteAO(gam,tau,2)
+            tmpO4s = LrOnsiteAO(gam,nu,2)
 
-            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s - tmpO3s
+            tmpvalue1s = overSqr(mu,gam) * overSqr(tau,nu) * &
+                & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
 
-            tmpO1s = 0.25_dp * overSqr(mu,tau) * overSqr(gam,nu) * &
-                & (LrOnsiteAO(mu,nu,1) + LrOnsiteAO(gam,tau,1))
+            HxcHalfS(k,l) = HxcHalfS(k,l) + 0.5_dp * tmpvalue1s
 
-            tmpO2s = 0.0_dp
-            do kap = 1, nOrb
+            ! (mu,nu,gam,tau)
+            tmpO1s = LrOnsiteAO(mu,gam,1)
+            tmpO2s = LrOnsiteAO(tau,nu,1)
+            tmpO3s = LrOnsiteAO(mu,nu,1)
+            tmpO4s = LrOnsiteAO(tau,gam,1)
 
-              if (mu == nu) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(gam,kap) * &
-                    overSqr(kap,tau) * LrOnsiteAO(mu,kap,1)
-              end if
+            tmpvalue2s = overSqr(mu,nu) * overSqr(tau,gam) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,gam) * overSqr(tau,nu) * (tmpO3s + tmpO4s)
 
-              if (gam == nu) then
-                tmpO2s = tmpO2s + 0.25_dp * overSqr(mu,kap) * &
-                    overSqr(kap,tau) * LrOnsiteAO(gam,kap,1)
-              end if
+            HxcHalfS(k,l) = HxcHalfS(k,l) - 0.125_dp * tmpvalue2s
 
-            end do
+            tmpvalue2s = 0.0_dp
+            if (mu == gam) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,tau) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (mu == nu) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,tau) * overSqr(kap,gam) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (tau == gam) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,mu) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(tau,kap,1)
+              end do
+            end if
+            if (tau == nu) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * LrOnsiteAO(tau,kap,1)
+              end do
+            end if
 
-            tmpO3s = overSqr(mu,gam) * overSqr(tau,nu) * &
-                (LrOnsiteAO(mu,nu,2) + LrOnsiteAO(gam,nu,2))
+            HxcHalfS(k,l) = HxcHalfS(k,l) - 0.125_dp * tmpvalue2s
 
-            HxcHalfS(k,l) = HxcHalfS(k,l) + tmpO1s + tmpO2s - tmpO3s
+            tmpO1s = LrOnsiteAO(mu,gam,2)
+            tmpO2s = LrOnsiteAO(mu,nu,2)
+            tmpO3s = LrOnsiteAO(tau,gam,2)
+            tmpO4s = LrOnsiteAO(tau,nu,2)
+
+            tmpvalue2s = overSqr(mu,tau) * overSqr(gam,nu) * &
+                & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+
+            HxcHalfS(k,l) = HxcHalfS(k,l) + 0.5_dp * tmpvalue2s
 
           end if
 
