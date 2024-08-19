@@ -1088,8 +1088,8 @@ module dftbp_reks_reksinterface
     ! get Hxc kernel -> (\mu,\nu|f_{Hxc}|\tau,\gam)
     call getHxcKernel(this%getDenseAO, over, this%overSqr, this%GammaAO, this%SpinAO,&
         & this%OnsiteAO, this%LrGammaAO, this%LrOnsiteAO, this%Glevel, this%tSaveMem,&
-        & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, this%HxcSpS, this%HxcSpD,&
-        & this%HxcHalfS, this%HxcHalfD, this%HxcSqrS, this%HxcSqrD)
+        & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, this%isHalf, this%HxcSpS,&
+        & this%HxcSpD, this%HxcHalfS, this%HxcHalfD, this%HxcSqrS, this%HxcSqrD)
 
     ! get G1, weightIL, Omega, Rab values
     call getG1ILOmegaRab(env, denseDesc, neighbourList, nNeighbourSK, &
@@ -1169,7 +1169,8 @@ module dftbp_reks_reksinterface
               & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
               & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
               & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-              & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, this%isHybridXc, this%ZdelL)
+              & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, &
+              & this%isHybridXc, this%isHalf, this%ZdelL)
 
           ! build XTdel with Z^delta values
           call buildInteractionVectors(eigenvecs, this%ZdelL, this%fockFc, &
@@ -1276,7 +1277,8 @@ module dftbp_reks_reksinterface
           & this%G1, this%GammaAO, this%SpinAO, this%LrGammaAO, this%overSqr, &
           & over, eigenvecs, this%fillingL, this%weight, this%Glimit, this%orderRmatL, &
           & this%getDenseAO, this%Lpaired, this%Nc, this%Na, this%CGmaxIter, this%Glevel, &
-          & this%reksAlg, this%tSaveMem, this%isOnsite, this%isHybridXc, ZT, RmatL, ZmatL, Q2mat)
+          & this%reksAlg, this%tSaveMem, this%isOnsite, this%isHybridXc, this%isHAlf, &
+          & ZT, RmatL, ZmatL, Q2mat)
 
     else if (this%Glevel == 3) then
 
@@ -1292,7 +1294,8 @@ module dftbp_reks_reksinterface
             & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
             & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
             & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-            & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, this%isHybridXc, ZmatL)
+            & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, &
+            & this%isHybridXc, this%isHalf, ZmatL)
         call getQ2mat(eigenvecs, this%fillingL, this%weight, ZmatL, Q2mat)
         write(stdOut,"(A)") repeat("-", 82)
       end if

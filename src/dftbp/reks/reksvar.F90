@@ -253,6 +253,9 @@ module dftbp_reks_reksvar
     !> If charges should be blured
     logical :: tBlur
 
+    !> Do we need half dense matrix to reduce compuational cost?
+    logical :: isHalf
+
 
     !> get atom index from AO index
     integer, allocatable :: getAtomIndex(:)
@@ -710,6 +713,8 @@ module dftbp_reks_reksvar
     ! Set tDipole is true when we compute the relaxed density for REKS
     tDipole = (tDipole .and. this%tRD)
 
+    this%isHalf = this%isOnsite .or. this%isHybridXc .or. this%isRS_OnsCorr
+
     ! Check REKS requirements
 
     call checkReksRequirements(this)
@@ -739,7 +744,7 @@ module dftbp_reks_reksvar
       allocate(this%rhoSpL(0,1,Lmax))
     end if
 
-    if (this%isHybridXc) then
+    if (this%isHybridXc .or. this%isRS_OnsCorr) then
       allocate(this%deltaRhoSqrL(nOrb,nOrb,1,Lmax))
     end if
 
@@ -757,7 +762,7 @@ module dftbp_reks_reksvar
     allocate(this%intShellL(mShell,nAtom,nSpin,Lmax))
     allocate(this%intBlockL(mOrb,mOrb,nAtom,nSpin,Lmax))
 
-    if (this%isHybridXc) then
+    if (this%isHybridXc .or. this%isRS_OnsCorr) then
       allocate(this%hamSqrL(nOrb,nOrb,1,Lmax))
     else
       allocate(this%hamSpL(0,1,Lmax))
@@ -838,7 +843,7 @@ module dftbp_reks_reksvar
 
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (this%isHybridXc .or. this%isOnsite) then
+            if (this%isHalf) then
               allocate(this%HxcHalfS(nOrbHalf,nOrbHalf))
               allocate(this%HxcHalfD(nOrbHalf,nOrbHalf))
             else
@@ -951,7 +956,7 @@ module dftbp_reks_reksvar
       this%rhoSpL(:,:,:) = 0.0_dp
     end if
 
-    if (this%isHybridXc) then
+    if (this%isHybridXc .or. this%isRS_OnsCorr) then
       this%deltaRhoSqrL(:,:,:,:) = 0.0_dp
     end if
 
@@ -969,7 +974,7 @@ module dftbp_reks_reksvar
     this%intShellL(:,:,:,:) = 0.0_dp
     this%intBlockL(:,:,:,:,:) = 0.0_dp
 
-    if (this%isHybridXc) then
+    if (this%isHybridXc .or. this%isRS_OnsCorr) then
       this%hamSqrL(:,:,:,:) = 0.0_dp
     else
       this%hamSpL(:,:,:) = 0.0_dp
@@ -1048,7 +1053,7 @@ module dftbp_reks_reksvar
 
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (this%isHybridXc .or. this%isOnsite) then
+            if (this%isHalf) then
               this%HxcHalfS(:,:) = 0.0_dp
               this%HxcHalfD(:,:) = 0.0_dp
             else
@@ -1229,6 +1234,16 @@ module dftbp_reks_reksvar
         call error("Too small shift value in REKS")
       end if
 
+      if (this%isRS_OnsCorr) then
+        if (.not. this%isHybridXc) then
+          call error("The long-range onsite correction must be used with range-separated&
+              & XC functional in REKS")
+        else if (.not. this%isOnsite) then
+          call error("The long-range onsite correction must be used with full-range onsite&
+              & correction in REKS")
+        end if
+      end if
+
       ! REKS gradient requirements
 
       if (this%tForces) then
@@ -1312,7 +1327,7 @@ module dftbp_reks_reksvar
     if (.not. this%tForces) then
       deallocate(this%rhoSpL)
     end if
-    if (.not. this%isHybridXc) then
+    if (.not. (this%isHybridXc .or. this%isRS_OnsCorr)) then
       deallocate(this%hamSpL)
     end if
 
@@ -1321,7 +1336,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. (this%isHybridXc .or. this%isOnsite)) then
+            if (.not. this%isHalf) then
               deallocate(this%HxcSpS)
               deallocate(this%HxcSpD)
             end if
@@ -1334,7 +1349,7 @@ module dftbp_reks_reksvar
     if (.not. this%tForces) then
       allocate(this%rhoSpL(sparseSize,1,this%Lmax))
     end if
-    if (.not. this%isHybridXc) then
+    if (.not. (this%isHybridXc .or. this%isRS_OnsCorr)) then
       allocate(this%hamSpL(sparseSize,1,this%Lmax))
     end if
 
@@ -1343,7 +1358,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. (this%isHybridXc .or. this%isOnsite)) then
+            if (.not. this%isHalf) then
               allocate(this%HxcSpS(sparseSize,sparseSize))
               allocate(this%HxcSpD(sparseSize,sparseSize))
             end if
@@ -1356,7 +1371,7 @@ module dftbp_reks_reksvar
     if (.not. this%tForces) then
       this%rhoSpL = 0.0_dp
     end if
-    if (.not. this%isHybridXc) then
+    if (.not. (this%isHybridXc .or. this%isRS_OnsCorr)) then
       this%hamSpL = 0.0_dp
     end if
 
@@ -1365,7 +1380,7 @@ module dftbp_reks_reksvar
       if (this%Efunction > 1) then
         if (this%Glevel == 1 .or. this%Glevel == 2) then
           if (this%tSaveMem) then
-            if (.not. (this%isHybridXc .or. this%isOnsite)) then
+            if (.not. this%isHalf) then
               this%HxcSpS = 0.0_dp
               this%HxcSpD = 0.0_dp
             end if

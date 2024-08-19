@@ -633,8 +633,8 @@ contains
 
   !> Interface routine to calculate H-XC kernel in REKS
   subroutine getHxcKernel(getDenseAO, over, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO,&
-      & LrOnsiteAO, Glevel, tSaveMem, isOnsite, isHybridXc, isRS_OnsCorr, HxcSpS, HxcSpD,&
-      & HxcHalfS, HxcHalfD, HxcSqrS, HxcSqrD)
+      & LrOnsiteAO, Glevel, tSaveMem, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, HxcSpS,&
+      & HxcSpD, HxcHalfS, HxcHalfD, HxcSqrS, HxcSqrD)
 
     !> get dense AO index from sparse AO array
     integer, intent(in) :: getDenseAO(:,:)
@@ -675,6 +675,9 @@ contains
     !> Whether to run onsite correction with range-separated functional
     logical, intent(in) :: isRS_OnsCorr
 
+    !> Do we need half dense matrix to reduce compuational cost?
+    logical, intent(in) :: isHalf
+
     !> Hartree-XC kernel with sparse form with same spin part
     real(dp), allocatable, intent(inout) :: HxcSpS(:,:)
 
@@ -697,7 +700,7 @@ contains
 
       if (tSaveMem) then
 
-        if (isHybridXc .or. isOnsite) then
+        if (isHalf) then
 
           ! get Hxc kernel for DFTB with respect to AO basis
           ! for LC case, we use half dense form.
@@ -1486,7 +1489,8 @@ contains
   subroutine getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, &
       & HxcHalfD, HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, LrGammaAO, &
-      & orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, ZmatL)
+      & orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, &
+      & isHalf, ZmatL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1566,6 +1570,9 @@ contains
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Do we need half dense matrix to reduce compuational cost?
+    logical, intent(in) :: isHalf
+
     !> auxiliary matrix in AO basis related to SA-REKS term
     real(dp), intent(out) :: ZmatL(:,:,:)
 
@@ -1574,7 +1581,7 @@ contains
 
       if (tSaveMem) then
 
-        if (isHybridXc .or. isOnsite) then
+        if (isHalf) then
 
           call getZmatHalf_(HxcHalfS, HxcHalfD, orderRmatL, Lpaired, RmatL, ZmatL)
 
@@ -6699,7 +6706,7 @@ contains
             do mu = iAtTau1, iAtTau2
               do nu = 1, nOrb
                 shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
               end do
             end do
           end do
@@ -6718,7 +6725,7 @@ contains
             do mu = iAtTau1, iAtTau2
               do nu = 1, nOrb
                 shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
               end do
             end do
           end do
@@ -6737,7 +6744,7 @@ contains
             do mu = iAtTau1, iAtTau2
               do nu = 1, nOrb
                 shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
               end do
             end do
           end do
@@ -6753,7 +6760,7 @@ contains
             do mu = iAtTau1, iAtTau2
               do nu = 1, nOrb
                 shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - tmpH_sl(mu-iAtTau1+1,nu,ii) / 6.0_dp
+                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
               end do
             end do
           end do
@@ -6769,7 +6776,7 @@ contains
             do mu = 1, nOrb
               do nu = iAtGam1, iAtGam2
                 shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
               end do
             end do
           end do
@@ -6787,7 +6794,7 @@ contains
             do mu = 1, nOrb
               do nu = iAtGam1, iAtGam2
                 shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
               end do
             end do
           end do
@@ -6804,7 +6811,7 @@ contains
             do mu = 1, nOrb
               do nu = iAtGam1, iAtGam2
                 shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
               end do
             end do
           end do
@@ -6823,7 +6830,7 @@ contains
             do mu = 1, nOrb
               do nu = iAtGam1, iAtGam2
                 shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - tmpH_ls(mu,nu-iAtGam1+1,ii) / 6.0_dp
+                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
               end do
             end do
           end do
