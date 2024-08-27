@@ -1358,7 +1358,7 @@ module dftbp_reks_reksinterface
         & this%rVec, this%gVec, this%alpha, this%volume, this%getDenseAO, this%getDenseAtom, &
         & this%getAtomIndex, this%orderRmatL, this%Lpaired, this%SAstates, this%tNAC, &
         & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, this%tExtChrg, this%tPeriodic, &
-        & this%tBlur, this%SAgrad, this%SIgrad, this%SSRgrad)
+        & this%tBlur, this%isHalf, this%SAgrad, this%SIgrad, this%SSRgrad)
 
   end subroutine getRTGradient_
 
