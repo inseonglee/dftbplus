@@ -2517,7 +2517,6 @@ contains
 
       ! Note that SP and R matrices are already computed
 
-      ! onsite term with sparse R and T variables
       ! range-separated onsite term with half dense R and T variables
       call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP, tmpRmatL,&
           & tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
@@ -6341,15 +6340,18 @@ contains
     ! compute a vector from density matrix dot long-range onsite constants
     call getLdotP(deltaRhoSqrL, LrOnsiteAO, getAtomIndex, iSquare, LdotP)
 
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,iAtTau1,iAtTau2, &
+!$OMP& iAtGam1,iAtGam2,tmpSderiv,tmpRho,tmpSP,tmpOver1,tmpOver2,tmpOnsite, &
+!$OMP& tmpOnsite_RI,Tterm,Tterm0,Tterm1,Tterm2,shiftPS,sumOC,shiftOM, &
+!$OMP& shiftMM,shiftIM,shiftMM1,shiftMM2,shiftIM1,shiftIM2,iAtom3, &
+!$OMP& iAtom4) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
     loopKK: do k = 1, nAtomSparse
 
-!    #:if WITH_OMP
-!      id = OMP_GET_THREAD_NUM() + 1
-!    #:else
-!      id = 1
-!    #:endif
-      ! TODO
+    #:if WITH_OMP
+      id = OMP_GET_THREAD_NUM() + 1
+    #:else
       id = 1
+    #:endif
 
       ! set the atom indices with respect to sparsity
       iAtom1 = getDenseAtom(k,1)
@@ -6712,6 +6714,7 @@ contains
       end if
 
     end do loopKK
+!$OMP END PARALLEL DO
 
     contains
 
