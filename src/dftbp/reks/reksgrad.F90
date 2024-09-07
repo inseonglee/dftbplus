@@ -2361,7 +2361,6 @@ contains
     real(dp), intent(inout) :: SSRgrad(:,:,:)
 
 
-    ! TODO : The comments for below local variables must be modified
     ! for common term
     real(dp), allocatable :: deriv1(:,:,:)
     real(dp), allocatable :: deriv2(:,:,:)
@@ -2373,9 +2372,6 @@ contains
     ! for LC term
     real(dp), allocatable :: SP(:,:,:)
     real(dp), allocatable :: SPS(:,:,:)
-
-    ! TODO : tmp
-    real(dp) :: T1, T2
 
     integer :: nAtom, ist, nstates, nstHalf, iL
     integer :: nOrb, nOrbhalf, sparseSize, LmaxR, Lmax
@@ -2445,11 +2441,9 @@ contains
         call qm2ud(qBlockL(:,:,:,:,iL))
       end do
 
-      ! onsite term with sparse R and T variables
       call getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
           & tmpRmatL, tmpRdelL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
           & denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
-
     end if
 
     ! point charge term with sparse R and T variables
@@ -2523,9 +2517,10 @@ contains
 
       ! Note that SP and R matrices are already computed
 
+      ! onsite term with sparse R and T variables
       ! range-separated onsite term with half dense R and T variables
-      call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
-          & tmpRmatL, tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
+      call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP, tmpRmatL,&
+          & tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
           & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
 
     end if
@@ -5278,8 +5273,8 @@ contains
     real(dp), intent(inout) :: deriv2(:,:,:)
 
     real(dp), allocatable :: deltaQBlockL(:,:,:,:,:)     ! mOrb, mOrb, nAtom, nSpin, Lmax
-    real(dp), allocatable :: LdotP(:,:)                  ! nOrb, Lmax
     real(dp), allocatable :: LmulP(:,:,:,:)              ! mOrb, mOrb, nAtom, Lmax
+    real(dp), allocatable :: LdotP_RI(:,:)               ! nOrb, Lmax
 
     real(dp), allocatable :: tmpSderiv(:,:,:)            ! mOrb, mOrb, 3
     real(dp), allocatable :: tmpRho(:,:,:,:)             ! mOrb, mOrb, nSpin, Lmax
@@ -5326,8 +5321,8 @@ contains
   #:endif
 
     allocate(deltaQBlockL(mOrb,mOrb,nAtom,nSpin,Lmax))
-    allocate(LdotP(nOrb,Lmax))
     allocate(LmulP(mOrb,mOrb,nAtom,Lmax))
+    allocate(LdotP_RI(nOrb,Lmax))
 
     allocate(tmpSderiv(mOrb,mOrb,3))
     allocate(tmpRho(mOrb,mOrb,nSpin,Lmax))
@@ -5356,7 +5351,7 @@ contains
     call getLmulP(deltaQBlockL, OnsiteAO, iSquare, LmulP)
 
     ! compute a vector from qBlockL dot full-range onsite constants
-    call getLdotP(deltaQBlockL, OnsiteAO, getAtomIndex, iSquare, LdotP)
+    call getLdotP(deltaQBlockL, OnsiteAO, getAtomIndex, iSquare, LdotP_RI)
 
     ! compute R*T shift with only up-spin part of TderivL due to symmetry
 
@@ -5364,7 +5359,7 @@ contains
 !$OMP& iAtGam1,iAtGam2,tmpSderiv,tmpRho,tmpOver1,tmpOver2,tmpOnsite, &
 !$OMP& Tterm,Tterm1,Tterm2,shiftOM,shiftMM,shiftIM,shiftIM1,shiftIM2, &
 !$OMP& sumRI,shiftPS,iAtom3,iAtom4) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
-    do k = 1, nAtomSparse
+    loopKK: do k = 1, nAtomSparse
 
     #:if WITH_OMP
       id = OMP_GET_THREAD_NUM() + 1
@@ -5435,7 +5430,6 @@ contains
         ! 2nd : overlap derivative in dual density matrix
         do iL = 1, Lmax
 
-          shiftIM2(:,:,:) = 0.0_dp
           do ii = 1, 3
             shiftOM(:,:) = 0.0_dp
             do iSpin = 1, nSpin
@@ -5449,7 +5443,6 @@ contains
           end do
           Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
 
-          shiftIM1(:,:,:) = 0.0_dp
           do ii = 1, 3
             shiftOM(:,:) = 0.0_dp
             do iSpin = 1, nSpin
@@ -5471,8 +5464,8 @@ contains
           do ii = 1, 3
             do mu = iAtTau1, iAtTau2
               do nu = iAtGam1, iAtGam2
-                shiftIM(mu-iAtTau1+1,nu-iAtGam1+1,ii) = - 2.0_dp * (LdotP(mu,iL) &
-                    & + LdotP(nu,iL)) * tmpSderiv(mu-iAtTau1+1,nu-iAtGam1+1,ii)
+                shiftIM(mu-iAtTau1+1,nu-iAtGam1+1,ii) = - 2.0_dp * (LdotP_RI(mu,iL) &
+                    & + LdotP_RI(nu,iL)) * tmpSderiv(mu-iAtTau1+1,nu-iAtGam1+1,ii)
               end do
             end do
           end do
@@ -5531,32 +5524,29 @@ contains
           iAtom4 = getAtomIndex(nu)
 
           if (mu <= nu) then
-            do iL = 1, Lmax
   
-              ! mu in tau and nu in gamma
-              if (iAtom3 == iAtom1 .and. iAtom4 == iAtom2) then
-                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + Tterm(mu-iAtTau1+1,nu-iAtGam1+1,:,iL)
-              end if
+            ! mu in tau and nu in gamma
+            if (iAtom3 == iAtom1 .and. iAtom4 == iAtom2) then
+              TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm(mu-iAtTau1+1,nu-iAtGam1+1,:,:)
+            end if
   
-              ! mu in tau
-              if (iAtom3 == iAtom1) then
-                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + Tterm2(mu-iAtTau1+1,nu,:,iL)
-              end if
-              ! nu in tau
-              if (iAtom4 == iAtom1) then
-                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + Tterm2(nu-iAtTau1+1,mu,:,iL)
-              end if
-              ! mu in gamma
-              if (iAtom3 == iAtom2) then
-                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + Tterm1(nu,mu-iAtGam1+1,:,iL)
-              end if
-              ! nu in gamma
-              if (iAtom4 == iAtom2) then
-                TderivL(l,:,iL,id) = TderivL(l,:,iL,id) + Tterm1(mu,nu-iAtGam1+1,:,iL)
-              end if
+            ! mu in tau
+            if (iAtom3 == iAtom1) then
+              TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm2(mu-iAtTau1+1,nu,:,:)
+            end if
+            ! nu in tau
+            if (iAtom4 == iAtom1) then
+              TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm2(nu-iAtTau1+1,mu,:,:)
+            end if
+            ! mu in gamma
+            if (iAtom3 == iAtom2) then
+              TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm1(nu,mu-iAtGam1+1,:,:)
+            end if
+            ! nu in gamma
+            if (iAtom4 == iAtom2) then
+              TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm1(mu,nu-iAtGam1+1,:,:)
+            end if
   
-            end do
-            ! end of loop iL
           end if
 
         end do loopLL
@@ -5580,7 +5570,7 @@ contains
 
       end if
 
-    end do
+    end do loopKK
     ! end of loop k
 !$OMP END PARALLEL DO
 
@@ -5640,9 +5630,9 @@ contains
 
         integer :: Lmax, nSpin, nAtom, iL, iSpin, iAtom, ii, jj, iAt1, iAt2
 
-        Lmax = size(qBlockL,dim=5)
-        nSpin = size(qBlockL,dim=4)
-        nAtom = size(qBlockL,dim=3)
+        Lmax = size(deltaQBlockL,dim=5)
+        nSpin = size(deltaQBlockL,dim=4)
+        nAtom = size(deltaQBlockL,dim=3)
 
         LmulP(:,:,:,:) = 0.0_dp
         do iL = 1, Lmax
@@ -5663,7 +5653,7 @@ contains
       end subroutine getLmulP
 
       !> compute a vector from qBlockL dot full-range onsite constants
-      subroutine getLdotP(deltaQBlockL, OnsiteAO, getAtomIndex, iSquare, LdotP)
+      subroutine getLdotP(deltaQBlockL, OnsiteAO, getAtomIndex, iSquare, LdotP_RI)
 
         !> delta Mulliken population per block for each microstate
         real(dp), intent(in) :: deltaQBlockL(:,:,:,:,:)
@@ -5677,16 +5667,16 @@ contains
         !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
         integer, intent(in) :: iSquare(:)
 
-        !> Lambda dot P
-        real(dp), intent(out) :: LdotP(:,:)
+        !> Lambda dot P related to RI loss correction
+        real(dp), intent(out) :: LdotP_RI(:,:)
 
         integer :: Lmax, nSpin, nOrb, iL, iSpin, mu, iAtom, ii, iAt1, iAt2
 
-        Lmax = size(qBlockL,dim=5)
-        nSpin = size(qBlockL,dim=4)
+        Lmax = size(deltaQBlockL,dim=5)
+        nSpin = size(deltaQBlockL,dim=4)
         nOrb = size(OnsiteAO,dim=1)
 
-        LdotP(:,:) = 0.0_dp
+        LdotP_RI(:,:) = 0.0_dp
         do iL = 1, Lmax
           do mu = 1, nOrb
             iAtom = getAtomIndex(mu)
@@ -5694,8 +5684,8 @@ contains
             iAt2 = iSquare(iAtom+1) - 1
             do iSpin = 1, nSpin
               do ii = 1, iAt2 - iAt1 + 1
-                LdotP(mu,iL) = LdotP(mu,iL) + deltaQBlockL(ii,ii,iAtom,iSpin,iL) * &
-                    & OnsiteAO(mu,iAt1-1+ii,iSpin,2)
+                LdotP_RI(mu,iL) = LdotP_RI(mu,iL) + deltaQBlockL(ii,ii,iAtom,iSpin,iL) &
+                    & * OnsiteAO(mu,iAt1-1+ii,iSpin,2)
               end do
             end do
           end do
@@ -6253,41 +6243,44 @@ contains
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
 
+    real(dp), allocatable :: LmulSP(:,:,:,:)        ! mOrb, mOrb, nAtom, Lmax
+    real(dp), allocatable :: LmulSP_RI(:,:,:,:)     ! mOrb, mOrb, nAtom, Lmax
+    real(dp), allocatable :: LdotSP(:,:)            ! nOrb, Lmax
+    real(dp), allocatable :: LmulP(:,:,:,:)         ! mOrb, mOrb, nAtom, Lmax
+    real(dp), allocatable :: LmulP_RI(:,:,:,:)      ! mOrb, mOrb, nAtom, Lmax
+    real(dp), allocatable :: LdotP(:,:)             ! nOrb, Lmax
+
     real(dp), allocatable :: tmpSderiv(:,:,:)       ! mOrb, mOrb, 3
+    real(dp), allocatable :: tmpRho(:,:,:)          ! mOrb, mOrb, Lmax
+    real(dp), allocatable :: tmpSP(:,:,:,:)         ! mOrb, mOrb, 2, Lmax
+    real(dp), allocatable :: tmpOnsite(:,:,:)       ! mOrb, mOrb, 2
+    real(dp), allocatable :: tmpOnsite_RI(:,:,:)    ! mOrb, mOrb, 2
 
-    real(dp), allocatable :: tmpVec(:)
-    real(dp), allocatable :: Hvec(:)
+    real(dp), allocatable :: sumOC(:)               ! mOrb
+    real(dp), allocatable :: shiftPS(:)             ! mOrb
+    real(dp), allocatable :: shiftMM(:,:)           ! mOrb, mOrb
+    real(dp), allocatable :: shiftOM(:,:)           ! mOrb, mOrb
+    real(dp), allocatable :: shiftIM(:,:,:)         ! mOrb, mOrb, 3
 
-    ! TODO : this part must be changed to Sderiv??
-    real(dp), allocatable :: tmpMat(:,:)
+    real(dp), allocatable :: tmpOver1(:,:)          ! nOrb, mOrb
+    real(dp), allocatable :: shiftMM1(:,:)          ! nOrb, mOrb
+    real(dp), allocatable :: shiftIM1(:,:,:)        ! nOrb, mOrb, 3
+    real(dp), allocatable :: tmpOver2(:,:)          ! mOrb, nOrb
+    real(dp), allocatable :: shiftMM2(:,:)          ! mOrb, nOrb
+    real(dp), allocatable :: shiftIM2(:,:,:)        ! mOrb, nOrb, 3
 
-    real(dp), allocatable :: tmpMat_ss(:,:)         ! mOrb, mOrb
-    real(dp), allocatable :: tmpH_ss(:,:,:)         ! mOrb, mOrb, 3
-
-    real(dp), allocatable :: tmpMat_sl(:,:)         ! mOrb, nOrb
-    real(dp), allocatable :: tmpSP_sl(:,:)          ! mOrb, nOrb
-    real(dp), allocatable :: tmpH_sl(:,:,:)         ! mOrb, nOrb, 3
-
-    real(dp), allocatable :: tmpMat_ls(:,:)         ! nOrb, mOrb
-    real(dp), allocatable :: tmpSP_ls(:,:)          ! nOrb, mOrb
-    real(dp), allocatable :: tmpH_ls(:,:,:)         ! nOrb, mOrb, 3
-
-    real(dp), allocatable :: tmpH_ll(:,:,:)         ! nOrb, nOrb, 3
-
-    real(dp), allocatable :: shift_ss(:,:,:,:)      ! mOrb, mOrb, 3, Lmax
-    real(dp), allocatable :: shift_sl(:,:,:,:)      ! mOrb, nOrb, 3, Lmax
-    real(dp), allocatable :: shift_ls(:,:,:,:)      ! nOrb, mOrb, 3, Lmax
-    real(dp), allocatable :: shift_ll(:,:,:,:)      ! nOrb, nOrb, 3, Lmax
-
+    real(dp), allocatable :: Tterm(:,:,:,:)         ! mOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: Tterm0(:,:,:,:,:)      ! mOrb, mOrb, 3, Lmax, 2
+    real(dp), allocatable :: Tterm1(:,:,:,:)        ! nOrb, mOrb, 3, Lmax
+    real(dp), allocatable :: Tterm2(:,:,:,:)        ! mOrb, nOrb, 3, Lmax
     real(dp), allocatable :: TderivL(:,:,:,:)       ! nOrbHalf, 3, Lmax, Ncpu
 
-    integer :: iAtom1, iAtom2, k, nAtomSparse, ist, nstates, nstHalf
-    integer :: mu, nu, al, be, nOrb, l, nOrbHalf, iAtom3, iAtom4
-    integer :: iL, Lmax, id, Ncpu
+    integer :: iAtom1, iAtom2, iAtom3, iAtom4, nAtom, k, nAtomSparse
+    integer :: ist, nstates, nstHalf, mu, nu, nOrb
+    integer :: l, nOrbHalf, iL, Lmax, id, Ncpu
     integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
 
-    integer :: kap
-
+    nAtom = size(deriv1,dim=2)
     nAtomSparse = size(getDenseAtom,dim=1)
     nstates = size(RmatHalfL,dim=3)
     nstHalf = nstates * (nstates - 1) /2
@@ -6304,33 +6297,49 @@ contains
     Ncpu = 1
   #:endif
 
+    allocate(LmulSP(mOrb,mOrb,nAtom,Lmax))
+    allocate(LmulSP_RI(mOrb,mOrb,nAtom,Lmax))
+    allocate(LdotSP(nOrb,Lmax))
+    allocate(LmulP(mOrb,mOrb,nAtom,Lmax))
+    allocate(LmulP_RI(mOrb,mOrb,nAtom,Lmax))
+    allocate(LdotP(nOrb,Lmax))
+
     allocate(tmpSderiv(mOrb,mOrb,3))
+    allocate(tmpRho(mOrb,mOrb,Lmax))
+    allocate(tmpSP(mOrb,mOrb,2,Lmax))
+    allocate(tmpOnsite(mOrb,mOrb,2))
+    allocate(tmpOnsite_RI(mOrb,mOrb,2))
 
-    allocate(tmpVec(nOrb))
-    allocate(Hvec(nOrb))
+    allocate(sumOC(mOrb))
+    allocate(shiftPS(mOrb))
+    allocate(shiftMM(mOrb,mOrb))
+    allocate(shiftOM(mOrb,mOrb))
+    allocate(shiftIM(mOrb,mOrb,3))
 
-    ! TODO : temporary use, not needed
-    allocate(tmpMat(nOrb,nOrb))
+    allocate(tmpOver1(nOrb,mOrb))
+    allocate(shiftMM1(nOrb,mOrb))
+    allocate(shiftIM1(nOrb,mOrb,3))
+    allocate(tmpOver2(mOrb,nOrb))
+    allocate(shiftMM2(mOrb,nOrb))
+    allocate(shiftIM2(mOrb,nOrb,3))
 
-    allocate(tmpMat_ss(mOrb,mOrb))
-    allocate(tmpH_ss(mOrb,mOrb,3))
-
-    allocate(tmpMat_sl(mOrb,nOrb))
-    allocate(tmpSP_sl(mOrb,nOrb))
-    allocate(tmpH_sl(mOrb,nOrb,3))
-
-    allocate(tmpMat_ls(nOrb,mOrb))
-    allocate(tmpSP_ls(nOrb,mOrb))
-    allocate(tmpH_ls(nOrb,mOrb,3))
-
-    allocate(tmpH_ll(nOrb,nOrb,3))
-
-    allocate(shift_ss(mOrb,mOrb,3,Lmax))
-    allocate(shift_sl(mOrb,nOrb,3,Lmax))
-    allocate(shift_ls(nOrb,mOrb,3,Lmax))
-    allocate(shift_ll(nOrb,nOrb,3,Lmax))
-
+    allocate(Tterm(mOrb,mOrb,3,Lmax))
+    allocate(Tterm0(mOrb,mOrb,3,Lmax,2))
+    allocate(Tterm1(nOrb,mOrb,3,Lmax))
+    allocate(Tterm2(mOrb,nOrb,3,Lmax))
     allocate(TderivL(nOrbHalf,3,Lmax,Ncpu))
+
+    ! compute a matrix from SP/PS multiplied by long-range onsite constants
+    call getLmulSP(SP, LrOnsiteAO, iSquare, LmulSP, LmulSP_RI)
+
+    ! compute a vector from SP/PS dot long-range onsite constants
+    call getLdotSP(SP, LrOnsiteAO, getAtomIndex, iSquare, LdotSP)
+
+    ! compute a matrix from density matrix multiplied by long-range onsite constants
+    call getLmulP(deltaRhoSqrL, LrOnsiteAO, iSquare, LmulP, LmulP_RI)
+
+    ! compute a vector from density matrix dot long-range onsite constants
+    call getLdotP(deltaRhoSqrL, LrOnsiteAO, getAtomIndex, iSquare, LdotP)
 
     loopKK: do k = 1, nAtomSparse
 
@@ -6360,440 +6369,281 @@ contains
               & = Sderiv(iAtTau1:iAtTau2,iAtGam1:iAtGam2,ii)
         end do
 
-        ! zeroing for temporary shift
-        shift_ss(:,:,:,:) = 0.0_dp
-        shift_sl(:,:,:,:) = 0.0_dp
-        shift_ls(:,:,:,:) = 0.0_dp
-        shift_ll(:,:,:,:) = 0.0_dp
+        ! zeroing for temporary density matrix
+        tmpRho(:,:,:) = 0.0_dp
+        ! deltaRhoSqrL has (my_ud) component
+        do iL = 1, Lmax
+          tmpRho(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,iL) &
+              & = deltaRhoSqrL(iAtTau1:iAtTau2,iAtGam1:iAtGam2,1,iL)
+        end do
 
-        loopMicrostate: do iL = 1, Lmax
+        ! zeroing for temporary density matrix
+        tmpSP(:,:,:,:) = 0.0_dp
+        ! SP has (my_ud) component
+        do iL = 1, Lmax
+          tmpSP(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,1,iL) &
+              & = SP(iAtTau1:iAtTau2,iAtGam1:iAtGam2,iL)
+          tmpSP(1:iAtGam2-iAtGam1+1,1:iAtTau2-iAtTau1+1,2,iL) &
+              & = SP(iAtGam1:iAtGam2,iAtTau1:iAtTau2,iL)
+        end do
 
-          ! 1st term - 1, 2
-          tmpVec(:) = 0.0_dp
-          do be = 1, nOrb
-            tmpVec(be) = SP(be,be,iL)
+        ! zeroing for temporary overlap matrix
+        tmpOver1(:,:) = 0.0_dp
+        tmpOver1(:,1:iAtGam2-iAtGam1+1) = overSqr(:,iAtGam1:iAtGam2)
+        ! zeroing for temporary overlap matrix
+        tmpOver2(:,:) = 0.0_dp
+        tmpOver2(1:iAtTau2-iAtTau1+1,:) = overSqr(iAtTau1:iAtTau2,:)
+
+        ! zeroing for temporary onsite constants
+        tmpOnsite(:,:,:) = 0.0_dp
+        tmpOnsite(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1,1) &
+            & = LrOnsiteAO(iAtTau1:iAtTau2,iAtTau1:iAtTau2,1)
+        tmpOnsite(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1,2) &
+            & = LrOnsiteAO(iAtGam1:iAtGam2,iAtGam1:iAtGam2,1)
+
+        tmpOnsite_RI(:,:,:) = 0.0_dp
+        tmpOnsite_RI(1:iAtTau2-iAtTau1+1,1:iAtTau2-iAtTau1+1,1) &
+            & = LrOnsiteAO(iAtTau1:iAtTau2,iAtTau1:iAtTau2,2)
+        tmpOnsite_RI(1:iAtGam2-iAtGam1+1,1:iAtGam2-iAtGam1+1,2) &
+            & = LrOnsiteAO(iAtGam1:iAtGam2,iAtGam1:iAtGam2,2)
+
+        ! zeroing for temporary T derivative
+        Tterm(:,:,:,:) = 0.0_dp
+        Tterm0(:,:,:,:,:) = 0.0_dp
+        Tterm1(:,:,:,:) = 0.0_dp
+        Tterm2(:,:,:,:) = 0.0_dp
+
+        ! 1st : LmulSP contribution w/ external overlap derivative
+        do iL = 1, Lmax
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftIM(:,:,ii) = matmul( transpose(LmulSP(:,:,iAtom1,iL)),tmpSderiv(:,:,ii) ) &
+                & + matmul( tmpSderiv(:,:,ii),LmulSP(:,:,iAtom2,iL) )
           end do
-          call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
+          Tterm(:,:,:,iL) = Tterm(:,:,:,iL) - 0.25_dp * shiftIM
+        end do
 
+        ! 2nd : Lmul contribution w/ internal overlap derivative
+        do iL = 1, Lmax
+
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            ! P * dS^T term
+            shiftOM(:,:) = tmpOnsite(:,:,1) * &
+                & matmul( tmpRho(:,:,iL),transpose(tmpSderiv(:,:,ii)) )
+            call gemm(shiftIM2(:,:,ii), shiftOM, tmpOver2, alpha=-0.25_dp)
+          end do
+          Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
+
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            ! dS^T * P term
+            shiftOM(:,:) = tmpOnsite(:,:,2) * &
+                & matmul( transpose(tmpSderiv(:,:,ii)),tmpRho(:,:,iL) )
+            call gemm(shiftIM1(:,:,ii), tmpOver1, shiftOM, alpha=-0.25_dp)
+          end do
+          Tterm1(:,:,:,iL) = Tterm1(:,:,:,iL) + shiftIM1
+
+        end do
+
+        ! 3rd : diagonal contribution w/ Kronecker delta
+        do iL = 1, Lmax
+
+          do ii = 1, 3
+            shiftMM(:,:) = 0.0_dp
+            shiftMM(:,:) = matmul(transpose(tmpSderiv(:,:,ii)),transpose(tmpSP(:,:,2,iL)))
+            shiftPS(:) = 0.0_dp
+            do nu = 1, iAtGam2 - iAtGam1 + 1
+              shiftPS(nu) = shiftMM(nu,nu)
+            end do
+            sumOC(:) = 0.0_dp
+            sumOC(:) = matmul(tmpOnsite(:,:,2),shiftPS(:))
+            do nu = 1, iAtGam2 - iAtGam1 + 1
+              Tterm0(nu,nu,ii,iL,2) = Tterm0(nu,nu,ii,iL,2) - 0.25_dp * sumOC(nu)
+            end do
+          end do
+
+          do ii = 1, 3
+            shiftMM(:,:) = 0.0_dp
+            shiftMM(:,:) = matmul(tmpSP(:,:,1,iL),transpose(tmpSderiv(:,:,ii)))
+            shiftPS(:) = 0.0_dp
+            do mu = 1, iAtTau2 - iAtTau1 + 1
+              shiftPS(mu) = shiftMM(mu,mu)
+            end do
+            sumOC(:) = 0.0_dp
+            sumOC(:) = matmul(tmpOnsite(:,:,1),shiftPS(:))
+            do mu = 1, iAtTau2 - iAtTau1 + 1
+              Tterm0(mu,mu,ii,iL,1) = Tterm0(mu,mu,ii,iL,1) - 0.25_dp * sumOC(mu)
+            end do
+          end do
+
+        end do
+
+        ! 4th : block diagonal contribution w/ long-range onsite constants
+        do iL = 1, Lmax
+
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            shiftOM(:,:) = tmpOnsite(:,:,1) * &
+                & matmul( tmpSderiv(:,:,ii),transpose(tmpSP(:,:,1,iL)) )
+            shiftIM(:,:,ii) = - 0.25_dp * shiftOM
+          end do
+          Tterm0(:,:,:,iL,1) = Tterm0(:,:,:,iL,1) + shiftIM
+
+          shiftIM(:,:,:) = 0.0_dp
+          do ii = 1, 3
+            shiftOM(:,:) = 0.0_dp
+            shiftOM(:,:) = tmpOnsite(:,:,2) * &
+                & matmul( tmpSP(:,:,2,iL),tmpSderiv(:,:,ii) )
+            shiftIM(:,:,ii) = - 0.25_dp * shiftOM
+          end do
+          Tterm0(:,:,:,iL,2) = Tterm0(:,:,:,iL,2) + shiftIM
+
+        end do
+
+        ! 5th & 6th : LdotP and LmulP contributions w/ external overlap derivative
+        do iL = 1, Lmax
+
+          shiftOM(:,:) = 0.0_dp
+          shiftOM(:,:) = LmulP(:,:,iAtom2,iL)
+          do nu = 1, iAtGam2 - iAtGam1 + 1
+            shiftOM(nu,nu) = shiftOM(nu,nu) + LdotP(nu+iAtGam1-1,iL)
+          end do
+          call gemm(shiftMM2, shiftOM, tmpOver1, transB="T", alpha=-0.25_dp)
+          do ii = 1, 3
+            call gemm(shiftIM2(:,:,ii), tmpSderiv(:,:,ii), shiftMM2)
+          end do
+          Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
+
+          shiftOM(:,:) = 0.0_dp
+          shiftOM(:,:) = LmulP(:,:,iAtom1,iL)
+          do mu = 1, iAtTau2 - iAtTau1 + 1
+            shiftOM(mu,mu) = shiftOM(mu,mu) + LdotP(mu+iAtTau1-1,iL)
+          end do
+          call gemm(shiftMM1, tmpOver2, shiftOM, transA="T", alpha=-0.25_dp)
+          do ii = 1, 3
+            call gemm(shiftIM1(:,:,ii), shiftMM1, tmpSderiv(:,:,ii))
+          end do
+          Tterm1(:,:,:,iL) = Tterm1(:,:,:,iL) + shiftIM1
+
+        end do
+
+        ! 7th : LdotSP contribution w/ external overlap derivative
+        do iL = 1, Lmax
+          shiftIM(:,:,:) = 0.0_dp
           do ii = 1, 3
             do mu = iAtTau1, iAtTau2
               do nu = iAtGam1, iAtGam2
-                shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,ii,iL) = shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,ii,iL)&
-                    & - 0.25 * tmpSderiv(mu-iAtTau1+1,nu-iAtGam1+1,ii) * (Hvec(mu) + Hvec(nu))
+                shiftIM(mu-iAtTau1+1,nu-iAtGam1+1,ii) = - 0.25_dp * (LdotSP(mu,iL) &
+                    & + LdotSP(nu,iL)) * tmpSderiv(mu-iAtTau1+1,nu-iAtGam1+1,ii)
               end do
             end do
           end do
+          Tterm(:,:,:,iL) = Tterm(:,:,:,iL) + shiftIM
+        end do
 
-          ! 1st term - 3, 4
-          ! TODO : How to compute correct Hvec without saving all elements?
-!          tmpMat_ss(:,:) = 0.0_dp
-!          tmpMat_ss(1:iAtGam2-iAtGam1+1,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(iAtGam1:iAtGam2,iAtTau1:iAtTau2,1,iL)
-!          do ii = 1, 3
-!            call gemm(tmpH_ss(:,:,ii), tmpMat_ss, tmpSderiv(:,:,ii))
-!            tmpVec(:) = 0.0_dp
-!            do be = 1, iAtGam2-iAtGam1+1
-!              tmpVec(be) = tmpH_ss(be,be,ii)
-!            end do
-!            call gemv(Hvec, LrOnsiteAO(:,iAtGam1:iAtGam2,1), tmpVec(1:iAtGam2-iAtGam1+1))
-!          end do
+        ! 8th : Ldot contribution w/ internal overlap derivative
+        do iL = 1, Lmax
+
+          shiftIM2(:,:,:) = 0.0_dp
           do ii = 1, 3
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
-            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
-            call gemm(tmpH_ll(:,:,ii), deltaRhoSqrL(:,:,1,iL), tmpMat)
-            tmpVec(:) = 0.0_dp
-            do be = 1, nOrb
-              tmpVec(be) = tmpH_ll(be,be,ii)
-            end do
-            call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
-
-            do mu = 1, nOrb
-              do nu = 1, nOrb
-                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL)&
-                    & - 0.25 * overSqr(mu,nu) * (Hvec(mu) + Hvec(nu))
-              end do
+            shiftPS(:) = 0.0_dp
+            shiftPS(:) = sum(tmpRho(:,:,iL)*tmpSderiv(:,:,ii),dim=2)
+            sumOC(:) = 0.0_dp
+            sumOC(:) = matmul(tmpOnsite(:,:,1),shiftPS(:))
+            do mu = 1, iAtTau2 - iAtTau1 + 1
+              shiftIM2(mu,:,ii) = - 0.25_dp * sumOC(mu) * tmpOver2(mu,:)
             end do
           end do
+          Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
 
-          ! 2nd term - 1
-          tmpSP_sl(:,:) = 0.0_dp
-          tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = transpose(SP(:,iAtGam1:iAtGam2,iL))
+          shiftIM1(:,:,:) = 0.0_dp
           do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpSP_sl)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii) * LrOnsiteAO(mu,nu,1)
-              end do
+            shiftPS(:) = 0.0_dp
+            shiftPS(:) = sum(tmpRho(:,:,iL)*tmpSderiv(:,:,ii),dim=1)
+            sumOC(:) = 0.0_dp
+            sumOC(:) = matmul(tmpOnsite(:,:,2),shiftPS(:))
+            do nu = 1, iAtGam2 - iAtGam1 + 1
+              shiftIM1(:,nu,ii) = - 0.25_dp * sumOC(nu) * tmpOver1(:,nu)
             end do
           end do
+          Tterm1(:,:,:,iL) = Tterm1(:,:,:,iL) + shiftIM1
 
-          ! 2nd term - 2
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,1)
-          call gemm(tmpSP_sl, tmpMat_sl, overSqr)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpSP_sl)
-          end do
+        end do
 
+        ! RI - 1st : LmulSP_RI contribution w/ external overlap derivative
+        do iL = 1, Lmax
+          shiftIM(:,:,:) = 0.0_dp
           do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
+            shiftIM(:,:,ii) = matmul( LmulSP_RI(:,:,iAtom1,iL),tmpSderiv(:,:,ii) ) &
+                & + matmul( tmpSderiv(:,:,ii),transpose(LmulSP_RI(:,:,iAtom2,iL)) )
           end do
+          Tterm(:,:,:,iL) = Tterm(:,:,:,iL) + shiftIM
+        end do
 
-          ! 2nd term - 3
-          tmpSP_ls(:,:) = 0.0_dp
-          tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
-          end do
+        ! RI - 2nd : Lmul_RI contribution w/ internal overlap derivative
+        do iL = 1, Lmax
 
           do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii) * LrOnsiteAO(mu,nu,1)
-              end do
-            end do
+            shiftOM(:,:) = 0.0_dp
+            ! dS * P^T term
+            shiftOM(:,:) = tmpOnsite_RI(:,:,1) * &
+                & matmul( tmpSderiv(:,:,ii),transpose(tmpRho(:,:,iL)) )
+            call gemm(shiftIM2(:,:,ii), shiftOM, tmpOver2)
           end do
-
-          ! 2nd term - 4
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,1)
-          call gemm(tmpSP_ls, overSqr, tmpMat_ls)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
-          end do
+          Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
 
           do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
+            shiftOM(:,:) = 0.0_dp
+            ! P^T * dS term
+            shiftOM(:,:) = tmpOnsite_RI(:,:,2) * &
+                & matmul( transpose(tmpRho(:,:,iL)),tmpSderiv(:,:,ii) )
+            call gemm(shiftIM1(:,:,ii), tmpOver1, shiftOM)
           end do
+          Tterm1(:,:,:,iL) = Tterm1(:,:,:,iL) + shiftIM1
 
-          ! 3rd term - 1
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = transpose(SP(iAtTau1:iAtTau2,:,iL)) * LrOnsiteAO(:,iAtTau1:iAtTau2,1)
+        end do
+
+        ! RI - 3rd : block diagonal contribution w/ long-range onsite constants
+        do iL = 1, Lmax
+
+          shiftIM(:,:,:) = 0.0_dp
           do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
+            shiftOM(:,:) = 0.0_dp
+            shiftOM(:,:) = tmpOnsite_RI(:,:,1) * &
+                & matmul( tmpSderiv(:,:,ii),transpose(tmpSP(:,:,1,iL)) )
+            shiftIM(:,:,ii) = shiftOM
           end do
+          Tterm0(:,:,:,iL,1) = Tterm0(:,:,:,iL,1) + shiftIM
 
+          shiftIM(:,:,:) = 0.0_dp
           do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
+            shiftOM(:,:) = 0.0_dp
+            shiftOM(:,:) = tmpOnsite_RI(:,:,2) * &
+                & matmul( tmpSP(:,:,2,iL),tmpSderiv(:,:,ii) )
+            shiftIM(:,:,ii) = shiftOM
           end do
+          Tterm0(:,:,:,iL,2) = Tterm0(:,:,:,iL,2) + shiftIM
 
-          ! 3rd term - 2
-          ! TODO : How to compute correct Hvec without saving all elements?
-!          do ii = 1, 3
-!            tmpMat_ls(:,:) = 0.0_dp
-!            tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL)
-!            call gemm(tmpSP_ls, tmpMat_ls, tmpSderiv(:,:,ii))
-!            tmpMat_ls(:,:) = 0.0_dp
-!            tmpMat_ls(:,1:iAtGam2-iAtGam1+1) = tmpSP_ls(:,1:iAtGam2-iAtGam1+1) * LrOnsiteAO(:,iAtGam1:iAtGam2,1)
-!            tmpSP_sl(:,:) = 0.0_dp
-!            tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = overSqr(iAtGam1:iAtGam2,:)
-!            call gemm(tmpH_ll(:,:,ii), tmpMat_ls, tmpSP_sl)
-!          end do
+        end do
+
+        ! RI - 4th : LmulP_RI contribution w/ external overlap derivative
+        do iL = 1, Lmax
+
+          call gemm(shiftMM2, LmulP_RI(:,:,iAtom2,iL), tmpOver1, transB="T")
           do ii = 1, 3
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
-            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
-            call gemm(tmpH_ll(:,:,ii), deltaRhoSqrL(:,:,1,iL), tmpMat)
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(:,:) = tmpH_ll(:,:,ii) * LrOnsiteAO(:,:,1)
-            call gemm(tmpH_ll(:,:,ii), tmpMat, overSqr)
+            call gemm(shiftIM2(:,:,ii), tmpSderiv(:,:,ii), shiftMM2)
           end do
+          Tterm2(:,:,:,iL) = Tterm2(:,:,:,iL) + shiftIM2
 
+          call gemm(shiftMM1, tmpOver2, LmulP_RI(:,:,iAtom1,iL), transA="T")
           do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = 1, nOrb
-                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL) - 0.25 * tmpH_ll(mu,nu,ii)
-              end do
-            end do
+            call gemm(shiftIM1(:,:,ii), shiftMM1, tmpSderiv(:,:,ii))
           end do
+          Tterm1(:,:,:,iL) = Tterm1(:,:,:,iL) + shiftIM1
 
-          ! 4th term - 1
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = SP(iAtGam1:iAtGam2,:,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,1)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! 4th term - 2
-          ! TODO : How to compute correct Hvec without saving all elements?
-!          do ii = 1, 3
-!            tmpMat_sl(:,:) = 0.0_dp
-!            tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
-!            call gemm(tmpSP_sl, tmpSderiv(:,:,ii), tmpMat_sl)
-!            tmpMat_sl(:,:) = 0.0_dp
-!            tmpMat_sl(1:iAtTau2-iAtTau1+1,:) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:) * LrOnsiteAO(iAtTau1:iAtTau2,:,1)
-!            tmpSP_ls(:,:) = 0.0_dp
-!            tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = overSqr(:,iAtTau1:iAtTau2)
-!            call gemm(tmpH_ll(:,:,ii), tmpSP_ls, tmpMat_sl)
-!          end do
-          do ii = 1, 3
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
-            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
-            call gemm(tmpH_ll(:,:,ii), tmpMat, deltaRhoSqrL(:,:,1,iL))
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(:,:) = tmpH_ll(:,:,ii) * LrOnsiteAO(:,:,1)
-            call gemm(tmpH_ll(:,:,ii), overSqr, tmpMat)
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = 1, nOrb
-                shift_ll(mu,nu,ii,iL) = shift_ll(mu,nu,ii,iL) - 0.25 * tmpH_ll(mu,nu,ii)
-              end do
-            end do
-          end do
-
-          ! 5th term
-          ! TODO : How to compute correct Hvec without saving all elements?
-!          tmpMat_ss(:,:) = 0.0_dp
-!          tmpMat_ss(1:iAtGam2-iAtGam1+1,1:iAtTau2-iAtTau1+1) = transpose(SP(iAtTau1:iAtTau2,iAtGam1:iAtGam2,iL))
-!          do ii = 1, 3
-!            call gemm(tmpH_ss(:,:,ii), tmpSderiv(:,:,ii), tmpMat_ss)
-!            tmpVec(:) = 0.0_dp
-!            do be = 1, iAtTau2-iAtTau1+1
-!              tmpVec(be) = tmpH_ss(be,be,ii)
-!            end do
-!            call gemv(Hvec, LrOnsiteAO(:,iAtTau1:iAtTau2,1), tmpVec(1:iAtTau2-iAtTau1+1))
-!          end do
-          do ii = 1, 3
-            tmpMat(:,:) = 0.0_dp
-            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(:,:,ii)
-            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(:,:,ii))
-!            tmpMat(iAtTau1:iAtTau2,iAtGam1:iAtGam2) = tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii)
-!            tmpMat(iAtGam1:iAtGam2,iAtTau1:iAtTau2) = transpose(tmpSderiv(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii))
-            call gemm(tmpH_ll(:,:,ii), tmpMat, SP(:,:,iL), transB="T")
-            tmpVec(:) = 0.0_dp
-            do be = 1, nOrb
-              tmpVec(be) = tmpH_ll(be,be,ii)
-            end do
-            call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
-
-            do mu = 1, nOrb
-              shift_ll(mu,mu,ii,iL) = shift_ll(mu,mu,ii,iL) - 0.5 * Hvec(mu)
-            end do
-          end do
-
-          ! 6th term - 1
-          tmpVec(:) = 0.0_dp
-          do be = 1, nOrb
-            tmpVec(be) = deltaRhoSqrL(be,be,1,iL)
-          end do
-          call gemv(Hvec, LrOnsiteAO(:,:,1), tmpVec)
-          tmpMat_ss(:,:) = 0.0_dp
-          do be = iAtGam1, iAtGam2
-            tmpMat_ss(be-iAtGam1+1,be-iAtGam1+1) = Hvec(be)
-          end do
-          tmpSP_sl(:,:) = 0.0_dp
-          tmpSP_sl(1:iAtGam2-iAtGam1+1,:) = overSqr(iAtGam1:iAtGam2,:)
-          call gemm(tmpMat_sl, tmpMat_ss, tmpSP_sl)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & - 0.25 * tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! 6th term - 2
-          tmpMat_ss(:,:) = 0.0_dp
-          do be = iAtTau1, iAtTau2
-            tmpMat_ss(be-iAtTau1+1,be-iAtTau1+1) = Hvec(be)
-          end do
-          tmpSP_ls(:,:) = 0.0_dp
-          tmpSP_ls(:,1:iAtTau2-iAtTau1+1) = overSqr(:,iAtTau1:iAtTau2)
-          call gemm(tmpMat_ls, tmpSP_ls, tmpMat_ss)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & - 0.25 * tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 1st term - 1
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-            tmpSP_sl(:,:) = 0.0_dp
-            tmpSP_sl(1:iAtTau2-iAtTau1+1,:) = tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) * LrOnsiteAO(iAtTau1:iAtTau2,:,2)
-            call gemm(tmpH_sl(:,:,ii), tmpSP_sl, overSqr)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 1st term - 2
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-            call gemm(tmpSP_sl, tmpH_sl(:,:,ii), overSqr)
-            tmpH_sl(:,:,ii) = 0.0_dp
-            tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:) * LrOnsiteAO(iAtTau1:iAtTau2,:,2)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 1st term - 3
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL) * LrOnsiteAO(iAtGam1:iAtGam2,:,2)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-            call gemm(tmpSP_sl, tmpH_sl(:,:,ii), overSqr)
-            tmpH_sl(:,:,ii) = 0.0_dp
-            tmpH_sl(1:iAtTau2-iAtTau1+1,:,ii) = tmpSP_sl(1:iAtTau2-iAtTau1+1,:)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 1st term - 4
-          tmpMat_sl(:,:) = 0.0_dp
-          tmpMat_sl(1:iAtGam2-iAtGam1+1,:) = transpose(SP(:,iAtGam1:iAtGam2,iL)) * LrOnsiteAO(iAtGam1:iAtGam2,:,2)
-          do ii = 1, 3
-            call gemm(tmpH_sl(:,:,ii), tmpSderiv(:,:,ii), tmpMat_sl)
-          end do
-
-          do ii = 1, 3
-            do mu = iAtTau1, iAtTau2
-              do nu = 1, nOrb
-                shift_sl(mu-iAtTau1+1,nu,ii,iL) = shift_sl(mu-iAtTau1+1,nu,ii,iL)&
-                    & + tmpH_sl(mu-iAtTau1+1,nu,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 2nd term - 1
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,2)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 2nd term - 2
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL)
-          do ii = 1, 3
-            call gemm(tmpSP_ls, tmpMat_ls, tmpSderiv(:,:,ii))
-            tmpH_ls(:,:,ii) = 0.0_dp
-            tmpH_ls(:,1:iAtGam2-iAtGam1+1,ii) = tmpSP_ls(:,1:iAtGam2-iAtGam1+1) * LrOnsiteAO(:,iAtGam1:iAtGam2,2)
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 2nd term - 3
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL) * LrOnsiteAO(:,iAtTau1:iAtTau2,2)
-          call gemm(tmpSP_ls, overSqr, tmpMat_ls)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpSP_ls, tmpSderiv(:,:,ii))
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
-          end do
-
-          ! RI loss: 2nd term - 4
-          tmpMat_ls(:,:) = 0.0_dp
-          tmpMat_ls(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL)
-          do ii = 1, 3
-            call gemm(tmpH_ls(:,:,ii), tmpMat_ls, tmpSderiv(:,:,ii))
-            tmpSP_ls(:,:) = 0.0_dp
-            tmpSP_ls(:,1:iAtGam2-iAtGam1+1) = tmpH_ls(:,1:iAtGam2-iAtGam1+1,ii) * LrOnsiteAO(:,iAtGam1:iAtGam2,2)
-            call gemm(tmpH_ls(:,:,ii), overSqr, tmpSP_ls)
-          end do
-
-          do ii = 1, 3
-            do mu = 1, nOrb
-              do nu = iAtGam1, iAtGam2
-                shift_ls(mu,nu-iAtGam1+1,ii,iL) = shift_ls(mu,nu-iAtGam1+1,ii,iL)&
-                    & + tmpH_ls(mu,nu-iAtGam1+1,ii)
-              end do
-            end do
-          end do
-
-        end do loopMicrostate
+        end do
 
         ! zeroing for temporary TderivL in each k atom pair
         ! calculate half dense TderivL in AO basis
@@ -6805,26 +6655,43 @@ contains
           iAtom3 = getAtomIndex(mu)
           iAtom4 = getAtomIndex(nu)
 
+          ! mu in tau and nu in gamma
           if (iAtom3 == iAtom1 .and. iAtom4 == iAtom2) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ss(mu-iAtTau1+1,nu-iAtGam1+1,:,:)
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm(mu-iAtTau1+1,nu-iAtGam1+1,:,:)
           end if
 
+          ! mu in tau and nu in tau
+          if (iAtom3 == iAtom1 .and. iAtom4 == iAtom1) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + &
+                & Tterm0(mu-iAtTau1+1,nu-iAtTau1+1,:,:,1) + &
+                & Tterm0(nu-iAtTau1+1,mu-iAtTau1+1,:,:,1)
+          end if
+          ! mu in gamma and nu in gamma
+          if (iAtom3 == iAtom2 .and. iAtom4 == iAtom2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + &
+                & Tterm0(mu-iAtGam1+1,nu-iAtGam1+1,:,:,2) + &
+                & Tterm0(nu-iAtGam1+1,mu-iAtGam1+1,:,:,2)
+          end if
+
+          ! mu in tau
           if (iAtom3 == iAtom1) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_sl(mu-iAtTau1+1,nu,:,:)
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm2(mu-iAtTau1+1,nu,:,:)
           end if
+          ! nu in tau
           if (iAtom4 == iAtom1) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_sl(nu-iAtTau1+1,mu,:,:)
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm2(nu-iAtTau1+1,mu,:,:)
           end if
+          ! mu in gamma
           if (iAtom3 == iAtom2) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ls(nu,mu-iAtGam1+1,:,:)
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm1(nu,mu-iAtGam1+1,:,:)
           end if
+          ! nu in gamma
           if (iAtom4 == iAtom2) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ls(mu,nu-iAtGam1+1,:,:)
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + Tterm1(mu,nu-iAtGam1+1,:,:)
           end if
-
-          TderivL(l,:,:,id) = TderivL(l,:,:,id) + shift_ll(mu,nu,:,:)
 
         end do loopLL
+        ! end of loop l
 
         if (tNAC) then
           do ist = 1, nstates
@@ -6845,6 +6712,165 @@ contains
       end if
 
     end do loopKK
+
+    contains
+
+      !> compute a matrix from SP/PS multiplied by long-range onsite constants
+      subroutine getLmulSP(SP, LrOnsiteAO, iSquare, LmulSP, LmulSP_RI)
+
+        !> Dense overlap * delta density in AO basis
+        real(dp), intent(in) :: SP(:,:,:)
+
+        !> onSiteElements with long-range exchange kernel in AO basis
+        real(dp), intent(in) :: LrOnsiteAO(:,:,:)
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> Lambda multiplied by SP/PS
+        real(dp), intent(out) :: LmulSP(:,:,:,:)
+
+        !> Lambda multiplied by SP/PS related to RI loss correction
+        real(dp), intent(out) :: LmulSP_RI(:,:,:,:)
+
+        integer :: Lmax, nAtom, iL, iAtom, ii, jj, iAt1, iAt2
+
+        Lmax = size(SP,dim=3)
+        nAtom = size(iSquare,dim=1) - 1
+
+        LmulSP(:,:,:,:) = 0.0_dp
+        LmulSP_RI(:,:,:,:) = 0.0_dp
+        do iL = 1, Lmax
+          do iAtom = 1, nAtom
+            iAt1 = iSquare(iAtom)
+            iAt2 = iSquare(iAtom+1) - 1
+            do ii = iAt1, iAt2
+              do jj = iAt1, iAt2
+                LmulSP(ii-iAt1+1,jj-iAt1+1,iAtom,iL) = SP(ii,jj,iL) * LrOnsiteAO(ii,jj,1)
+                LmulSP_RI(ii-iAt1+1,jj-iAt1+1,iAtom,iL) = SP(ii,jj,iL) * LrOnsiteAO(ii,jj,2)
+              end do
+            end do
+          end do
+        end do
+
+      end subroutine getLmulSP
+
+      !> compute a vector from SP/PS dot long-range onsite constants
+      subroutine getLdotSP(SP, LrOnsiteAO, getAtomIndex, iSquare, LdotSP)
+
+        !> Dense overlap * delta density in AO basis
+        real(dp), intent(in) :: SP(:,:,:)
+
+        !> onSiteElements with long-range exchange kernel in AO basis
+        real(dp), intent(in) :: LrOnsiteAO(:,:,:)
+
+        !> get atom index from AO index
+        integer, intent(in) :: getAtomIndex(:)
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> Lambda dot SP/PS
+        real(dp), intent(out) :: LdotSP(:,:)
+
+        integer :: Lmax, nOrb, iL, mu, iAtom, ii, iAt1, iAt2
+
+        Lmax = size(SP,dim=3)
+        nOrb = size(LrOnsiteAO,dim=1)
+
+        LdotSP(:,:) = 0.0_dp
+        do iL = 1, Lmax
+          do mu = 1, nOrb
+            iAtom = getAtomIndex(mu)
+            iAt1 = iSquare(iAtom)
+            iAt2 = iSquare(iAtom+1) - 1
+            do ii = iAt1, iAt2
+              LdotSP(mu,iL) = LdotSP(mu,iL) + SP(ii,ii,iL) * LrOnsiteAO(mu,ii,1)
+            end do
+          end do
+        end do
+
+      end subroutine getLdotSP
+
+      !> compute a matrix from density matrix multiplied by long-range onsite constants
+      subroutine getLmulP(deltaRhoSqrL, LrOnsiteAO, iSquare, LmulP, LmulP_RI)
+
+        !> Dense delta density matrix for each microstate
+        real(dp), intent(in) :: deltaRhoSqrL(:,:,:,:)
+
+        !> onSiteElements with long-range exchange kernel in AO basis
+        real(dp), intent(in) :: LrOnsiteAO(:,:,:)
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> Lambda multiplied by P
+        real(dp), intent(out) :: LmulP(:,:,:,:)
+
+        !> Lambda multiplied by P related to RI loss correction
+        real(dp), intent(out) :: LmulP_RI(:,:,:,:)
+
+        integer :: Lmax, nAtom, iL, iAtom, ii, jj, iAt1, iAt2
+
+        Lmax = size(deltaRhoSqrL,dim=4)
+        nAtom = size(iSquare,dim=1) - 1
+
+        LmulP(:,:,:,:) = 0.0_dp
+        LmulP_RI(:,:,:,:) = 0.0_dp
+        do iL = 1, Lmax
+          do iAtom = 1, nAtom
+            iAt1 = iSquare(iAtom)
+            iAt2 = iSquare(iAtom+1) - 1
+            do ii = iAt1, iAt2
+              do jj = iAt1, iAt2
+                LmulP(ii-iAt1+1,jj-iAt1+1,iAtom,iL) = &
+                    & deltaRhoSqrL(ii,jj,1,iL) * LrOnsiteAO(ii,jj,1)
+                LmulP_RI(ii-iAt1+1,jj-iAt1+1,iAtom,iL) = &
+                    & deltaRhoSqrL(ii,jj,1,iL) * LrOnsiteAO(ii,jj,2)
+              end do
+            end do
+          end do
+        end do
+
+      end subroutine getLmulP
+
+      !> compute a vector from density matrix dot long-range onsite constants
+      subroutine getLdotP(deltaRhoSqrL, LrOnsiteAO, getAtomIndex, iSquare, LdotP)
+
+        !> Dense delta density matrix for each microstate
+        real(dp), intent(in) :: deltaRhoSqrL(:,:,:,:)
+
+        !> onSiteElements with long-range exchange kernel in AO basis
+        real(dp), intent(in) :: LrOnsiteAO(:,:,:)
+
+        !> get atom index from AO index
+        integer, intent(in) :: getAtomIndex(:)
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> Lambda dot P
+        real(dp), intent(out) :: LdotP(:,:)
+
+        integer :: Lmax, nOrb, iL, mu, iAtom, ii, iAt1, iAt2
+
+        Lmax = size(deltaRhoSqrL,dim=4)
+        nOrb = size(LrOnsiteAO,dim=1)
+
+        LdotP(:,:) = 0.0_dp
+        do iL = 1, Lmax
+          do mu = 1, nOrb
+            iAtom = getAtomIndex(mu)
+            iAt1 = iSquare(iAtom)
+            iAt2 = iSquare(iAtom+1) - 1
+            do ii = iAt1, iAt2
+              LdotP(mu,iL) = LdotP(mu,iL) + deltaRhoSqrL(ii,ii,1,iL) * &
+                  & LrOnsiteAO(mu,ii,1)
+            end do
+          end do
+        end do
+
+      end subroutine getLdotP
 
   end subroutine getLrOnsiteTerms_
 
