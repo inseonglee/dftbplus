@@ -557,8 +557,9 @@ contains
 
               OnsiteAO(nu,mu,iSpin,1) = onSiteElements(iSp2,iSp1,iSpin,species(G1))
 
-              if (iSp1 == 2 .and. iSp2 == 2) then
-                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) / 6.0_dp
+              if (iSp1 == iSp2 .and. iSp1 > 1) then
+                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) &
+                    & / (2.0_dp * iSp1 - 1.0_dp) / 2.0_dp
               end if
 
               if (nu /= mu) then
@@ -614,8 +615,9 @@ contains
 
             LrOnSiteAO(nu,mu,1) = onSiteElements(iSp2,iSp1,3,species(G1))
 
-            if (iSp1 == 2 .and. iSp2 == 2) then
-              LrOnsiteAO(nu,mu,2) = onSiteElements(iSp2,iSp1,3,species(G1)) / 6.0_dp
+            if (iSp1 == iSp2 .and. iSp1 > 1) then
+              LrOnsiteAO(nu,mu,2) = onSiteElements(iSp2,iSp1,3,species(G1)) &
+                  & / (2.0_dp * iSp1 - 1.0_dp) / 2.0_dp
             end if
 
             if (nu /= mu) then
