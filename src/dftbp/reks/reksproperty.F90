@@ -23,7 +23,7 @@ module dftbp_reks_reksproperty
   use dftbp_io_message, only : error
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_matrixops, only : adjointLowerTriangle
-  use dftbp_reks_rekscommon, only : getTwoIndices, qm2udL, assignFilling, assignIndex
+  use dftbp_reks_rekscommon, only : getTwoIndices, qm2udL, ud2qmL, assignFilling, assignIndex
   use dftbp_reks_reksio, only : printRelaxedFONs, printRelaxedFONsL, printUnrelaxedFONs
   use dftbp_reks_reksvar, only : reksTypes
 
@@ -481,6 +481,9 @@ module dftbp_reks_reksproperty
     case (reksTypes%ssr44)
       call error("SSR(4,4) is not implemented yet")
     end select
+
+    ! rhoSqrL has (my_qm) component
+    call ud2qmL(rhoSqrL, Lpaired)
 
     do iL = 1, Lmax
       ! find proper index for RmatL

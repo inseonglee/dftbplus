@@ -33,7 +33,7 @@ module dftbp_reks_reksgrad
   use dftbp_math_lapackroutines, only : getrf, getri
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : assignEpsilon, assignIndex, getTwoIndices, matAO2MO, matMO2AO,&
-      & findShellOfAO, qm2udL, qmExpandL, udExpandL
+      & findShellOfAO, qm2udL, ud2qmL, qmExpandL, udExpandL
   use dftbp_reks_reksvar, only : reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -2433,6 +2433,11 @@ contains
 
     if (isOnsite) then
 
+      ! Note that the required variable in this routine is delta density matrix.
+      ! However, the delta density matrix is only obtained when we include
+      ! hybrid functional. Instead, the density matrix can be used since the
+      ! off-diagonal elements are only needed.
+
       ! rhoSqrL has (my_ud) component
       call qm2udL(rhoSqrL, Lpaired)
 
@@ -2444,6 +2449,10 @@ contains
       call getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
           & tmpRmatL, tmpRdelL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
           & denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+
+      ! rhoSqrL has (my_qm) component
+      call ud2qmL(rhoSqrL, Lpaired)
+
     end if
 
     ! point charge term with sparse R and T variables
@@ -2514,14 +2523,11 @@ contains
     end if
 
     if (isRS_OnsCorr) then
-
       ! Note that SP and R matrices are already computed
-
       ! range-separated onsite term with half dense R and T variables
       call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP, tmpRmatL,&
           & tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
           & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
-
     end if
 
     ! calculate the final gradient
