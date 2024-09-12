@@ -707,7 +707,7 @@ contains
           ! get Hxc kernel for DFTB with respect to AO basis
           ! for LC case, we use half dense form.
           call HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
-              & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, HxcHalfS, HxcHalfD)
+              & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, HxcHalfS, HxcHalfD)
 
         else
 
@@ -1491,9 +1491,9 @@ contains
   !> Calculate ZmatL or ZdelL used in CP-REKS equations
   subroutine getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, &
-      & HxcHalfD, HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, LrGammaAO, &
-      & orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, &
-      & isHalf, ZmatL)
+      & HxcHalfD, HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, OnsiteAO, &
+      & LrGammaAO, LrOnsiteAO, orderRmatL, getDenseAO, Lpaired, Glevel, &
+      & tSaveMem, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1549,8 +1549,14 @@ contains
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
 
     !> Ordering between RmatL and fillingL
     integer, intent(in) :: orderRmatL(:)
@@ -1572,6 +1578,9 @@ contains
 
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> Do we need half dense matrix to reduce compuational cost?
     logical, intent(in) :: isHalf
@@ -1600,7 +1609,8 @@ contains
 
         call getZmatNoHxc_(env, denseDesc, neighbourList, nNeighbourSK, &
             & iSparseStart, img2CentCell, orb, getDenseAO, GammaAO, SpinAO, &
-            & LrGammaAO, overSqr, RmatL, orderRmatL, Lpaired, isHybridXc, ZmatL)
+            & OnsiteAO, LrGammaAO, LrOnsiteAO, overSqr, RmatL, orderRmatL, &
+            & Lpaired, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
 
       end if
 
@@ -3117,7 +3127,7 @@ contains
 
   !> Calculate H-XC kernel for DFTB in AO basis with half dense form
   subroutine HxcKernelHalf_(getDenseAO, overSqr, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
-      & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, HxcHalfS, HxcHalfD)
+      & LrOnsiteAO, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, HxcHalfS, HxcHalfD)
 
     !> get dense AO index from sparse AO array
     integer, intent(in) :: getDenseAO(:,:)
@@ -3148,6 +3158,9 @@ contains
 
     !> Whether to run onsite correction with range-separated functional
     logical, intent(in) :: isRS_OnsCorr
+
+    !> Do we need half dense matrix to reduce compuational cost?
+    logical, intent(in) :: isHalf
 
     !> Hartree-XC kernel with half dense form with same spin part
     real(dp), allocatable, intent(inout) :: HxcHalfS(:,:)
@@ -3261,7 +3274,7 @@ contains
 !$OMP END PARALLEL DO
 
     ! LC, onsite terms
-    if (isHybridXc) then
+    if (isHalf) then
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam,tmp22, &
 !$OMP& tmpL1,tmpL2,tmpL3,tmpL4,kap,tmpvalue1s,tmpvalue2s, &
@@ -4568,7 +4581,8 @@ contains
   !> Calculate ZmatL without saving H-XC kernel used in CP-REKS equations in REKS(2,2)
   subroutine getZmatNoHxc_(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, orb, getDenseAO, GammaAO, SpinAO, &
-      & LrGammaAO, overSqr, RmatL, orderRmatL, Lpaired, isHybridXc, ZmatL)
+      & OnsiteAO, LrGammaAO, LrOnsiteAO, overSqr, RmatL, orderRmatL, &
+      & Lpaired, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -4600,8 +4614,14 @@ contains
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
 
     !> Dense overlap matrix
     real(dp), intent(in) :: overSqr(:,:)
@@ -4615,8 +4635,17 @@ contains
     !> Number of spin-paired microstates
     integer, intent(in) :: Lpaired
 
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
+    !> Do we need half dense matrix to reduce compuational cost?
+    logical, intent(in) :: isHalf
 
     !> auxiliary matrix in AO basis related to SA-REKS term
     real(dp), intent(out) :: ZmatL(:,:,:)
@@ -4629,8 +4658,7 @@ contains
 
     ! common variables
     real(dp) :: tmp22!, tmp11
-!    real(dp) :: tmpZ1, tmpZ2, tmp1, tmp2
-    integer :: mu, nu, tau, gam, nOrb, iL, Lmax, LmaxR
+    integer :: mu, nu, tau, gam, kap, nOrb, iL, Lmax, LmaxR
     integer :: ii, jj, sparseSize, nOrbHalf
 
     ! scc/spin variables
@@ -4639,7 +4667,14 @@ contains
 
     ! LC variables
     real(dp) :: tmpL1, tmpL2, tmpL3, tmpL4
-    real(dp) :: tmpvalue1, tmpvalue2
+
+    ! onsite variables
+    real(dp) :: tmpO1s, tmpO2s, tmpO3s, tmpO4s
+    real(dp) :: tmpO1d, tmpO2d, tmpO3d, tmpO4d
+
+    ! common variables
+    real(dp) :: tmpvalue1s, tmpvalue2s
+    real(dp) :: tmpvalue1d
 
     nOrb = size(RmatL,dim=1)
     LmaxR = size(RmatL,dim=3)
@@ -4679,11 +4714,12 @@ contains
     ! zeroing for ZmatL
     ZmatL(:,:,:) = 0.0_dp
 
-    ! calculate ZmatL for scc and spin term
+    ! calculate ZmatL for scc, spin, onsite terms
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam, &
 !$OMP& tmpG1,tmpG2,tmpG3,tmpG4,tmpS1,tmpS2,tmpS3,tmpS4, &
-!$OMP& tmpHxcS,tmpHxcD,tmpZM) SCHEDULE(RUNTIME)
+!$OMP& tmpO1s,tmpO2s,tmpO3s,tmpO4s,tmpO1d,tmpO2d,tmpO3d,tmpO4d, &
+!$OMP& tmpvalue1s,tmpvalue1d,tmpHxcS,tmpHxcD,tmpZM) SCHEDULE(RUNTIME)
     do ii = 1, sparseSize
 
       ! set the AO indices with respect to sparsity
@@ -4692,6 +4728,7 @@ contains
 
       if (tau <= gam .and. abs(overSqr(tau,gam)) >= epsilon(1.0_dp)) then
 
+        ! calculate the H-XC kernel for scc, spin, onsite terms
         tmpHxcS(:) = 0.0_dp
         tmpHxcD(:) = 0.0_dp
         do jj = 1, sparseSize
@@ -4700,14 +4737,15 @@ contains
           mu = getDenseAO(jj,1)
           nu = getDenseAO(jj,2)
 
-          ! calculate the H-XC kernel for scc, spin term
           if (mu <= nu .and. abs(overSqr(mu,nu)) >= epsilon(1.0_dp)) then
 
+            ! scc terms
             tmpG1 = GammaAO(mu,tau)
             tmpG2 = GammaAO(nu,tau)
             tmpG3 = GammaAO(mu,gam)
             tmpG4 = GammaAO(nu,gam)
 
+            ! spin terms
             tmpS1 = SpinAO(mu,tau)
             tmpS2 = SpinAO(nu,tau)
             tmpS3 = SpinAO(mu,gam)
@@ -4718,6 +4756,29 @@ contains
                 & ( (tmpG1+tmpG2+tmpG3+tmpG4) + (tmpS1+tmpS2+tmpS3+tmpS4) )
             tmpHxcD(jj) = 0.25_dp * overSqr(mu,nu) * overSqr(tau,gam) * &
                 & ( (tmpG1+tmpG2+tmpG3+tmpG4) - (tmpS1+tmpS2+tmpS3+tmpS4) )
+
+            if (isOnsite) then
+
+              ! full-range onsite terms
+              tmpO1s = OnsiteAO(mu,tau,1,2)
+              tmpO2s = OnsiteAO(nu,tau,1,2)
+              tmpO3s = OnsiteAO(mu,gam,1,2)
+              tmpO4s = OnsiteAO(nu,gam,1,2)
+
+              tmpO1d = OnsiteAO(mu,tau,2,2)
+              tmpO2d = OnsiteAO(nu,tau,2,2)
+              tmpO3d = OnsiteAO(mu,gam,2,2)
+              tmpO4d = OnsiteAO(nu,gam,2,2)
+
+              tmpvalue1s = overSqr(mu,nu) * overSqr(tau,gam) * &
+                  & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+              tmpvalue1d = overSqr(mu,nu) * overSqr(tau,gam) * &
+                  & (tmpO1d + tmpO2d + tmpO3d + tmpO4d)
+
+              tmpHxcS(jj) = tmpHxcS(jj) - tmpvalue1s
+              tmpHxcD(jj) = tmpHxcD(jj) - tmpvalue1d
+
+            end if
 
           end if
 
@@ -4737,15 +4798,19 @@ contains
     ! end of loop tau, gam
 !$OMP END PARALLEL DO
 
-    ! calculate the ZmatL for LC term
+    ! calculate the ZmatL for LC, onsite terms
 
-    if (isHybridXc) then
+    if (isHalf) then
 
       deallocate(tmpRmatL)
       deallocate(tmpHxcS)
+      deallocate(tmpHxcD)
 
       allocate(tmpRmatL(nOrbHalf,LmaxR))
       allocate(tmpHxcS(nOrbHalf))
+      if (isOnsite) then
+        allocate(tmpHxcD(nOrbHalf))
+      end if
 
       ! pack R matrix
       tmpRmatL(:,:) = 0.0_dp
@@ -4763,10 +4828,10 @@ contains
 
       end do
 
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(tau,gam, &
-!$OMP& tmpHxcS,mu,nu,tmpvalue1,tmpvalue2,tmpL1, &
-!$OMP& tmpL2,tmpL3,tmpL4,tmpZM,tmp22) SCHEDULE(RUNTIME)
-!!$OMP& tmpL2,tmpL3,tmpL4,tmpZM) SCHEDULE(RUNTIME)
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam, &
+!$OMP& tmp22,tmpHxcS,tmpHxcD,tmpvalue1s,tmpvalue2s,tmpvalue1d, &
+!$OMP& tmpL1,tmpL2,tmpL3,tmpL4,tmpO1s,tmpO2s,tmpO3s,tmpO4s, &
+!$OMP& tmpO1d,tmpO2d,tmpO3d,tmpO4d,tmpZM) SCHEDULE(RUNTIME)
       do ii = 1, nOrbHalf
 
         call getTwoIndices(nOrb, ii, tau, gam, 2)
@@ -4775,7 +4840,11 @@ contains
         !tau = int( real(tmp11, dp) )
         !gam = tau**2/2 - tau/2 - nOrb*tau + nOrb + ii
 
+        ! calculate the H-XC kernel for LC, onsite terms
         tmpHxcS(:) = 0.0_dp
+        if (isOnsite) then
+          tmpHxcD(:) = 0.0_dp
+        end if
         do jj = 1, nOrbHalf
 
           ! TODO : use 'getTwoIndices' -> 5.1 sec per 1 CG-loop
@@ -4787,26 +4856,198 @@ contains
           mu = int( real(tmp22, dp) )
           nu = mu**2/2 - mu/2 - nOrb*mu + nOrb + jj
 
-          ! calculate the H-XC kernel for LC term
           if (isHybridXc) then
 
             ! (mu,nu,tau,gam)
-            tmpL1 = LrGammaAO(mu,gam)
-            tmpL2 = LrGammaAO(mu,nu)
-            tmpL3 = LrGammaAO(tau,gam)
-            tmpL4 = LrGammaAO(tau,nu)
-            tmpvalue1 = -0.125_dp * overSqr(mu,tau) * &
-                & overSqr(nu,gam) * (tmpL1+tmpL2+tmpL3+tmpL4)
+            tmpvalue1s = 0.0_dp
+            if (abs(overSqr(mu,gam)) >= epsilon(1.0_dp) .and. &
+                & abs(overSqr(tau,nu)) >= epsilon(1.0_dp)) then
+              tmpL1 = LrGammaAO(mu,tau)
+              tmpL2 = LrGammaAO(mu,nu)
+              tmpL3 = LrGammaAO(gam,tau)
+              tmpL4 = LrGammaAO(gam,nu)
+              tmpvalue1s = 0.125_dp * overSqr(mu,gam) * &
+                  & overSqr(tau,nu) * (tmpL1+tmpL2+tmpL3+tmpL4)
+            end if
 
             ! (mu,nu,gam,tau)
-            tmpL1 = LrGammaAO(mu,tau)
-            tmpL2 = LrGammaAO(mu,nu)
-            tmpL3 = LrGammaAO(gam,tau)
-            tmpL4 = LrGammaAO(gam,nu)
-            tmpvalue2 = -0.125_dp * overSqr(mu,gam) * &
-                & overSqr(nu,tau) * (tmpL1+tmpL2+tmpL3+tmpL4)
+            tmpvalue2s = 0.0_dp
+            if (abs(overSqr(mu,tau)) >= epsilon(1.0_dp) .and. &
+                & abs(overSqr(gam,nu)) >= epsilon(1.0_dp)) then
+              tmpL1 = LrGammaAO(mu,gam)
+              tmpL2 = LrGammaAO(mu,nu)
+              tmpL3 = LrGammaAO(tau,gam)
+              tmpL4 = LrGammaAO(tau,nu)
+              tmpvalue2s = 0.125_dp * overSqr(mu,tau) * &
+                  & overSqr(gam,nu) * (tmpL1+tmpL2+tmpL3+tmpL4)
+            end if
 
-            tmpHxcS(jj) = tmpHxcS(jj) + tmpvalue1 + tmpvalue2
+            tmpHxcS(jj) = tmpHxcS(jj) - tmpvalue1s - tmpvalue2s
+
+          end if
+
+          ! full-range onsite terms
+          if (isOnsite) then
+
+            tmpO1s = OnsiteAO(mu,tau,1,1)
+            tmpO2s = OnsiteAO(nu,gam,1,1)
+            tmpO3s = OnsiteAO(mu,gam,1,1)
+            tmpO4s = OnsiteAO(nu,tau,1,1)
+
+            tmpvalue1s = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3s + tmpO4s)
+
+            tmpO1d = OnsiteAO(mu,tau,2,1)
+            tmpO2d = OnsiteAO(nu,gam,2,1)
+            tmpO3d = OnsiteAO(mu,gam,2,1)
+            tmpO4d = OnsiteAO(nu,tau,2,1)
+
+            tmpvalue1d = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1d + tmpO2d) &
+                & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3d + tmpO4d)
+
+            tmpHxcS(jj) = tmpHxcS(jj) + 0.25_dp * tmpvalue1s
+            tmpHxcD(jj) = tmpHxcD(jj) + 0.25_dp * tmpvalue1d
+
+            tmpvalue1s = 0.0_dp
+            tmpvalue1d = 0.0_dp
+            if (mu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,gam) &
+                    & * OnsiteAO(mu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,gam) &
+                    & * OnsiteAO(mu,kap,2,1)
+              end do
+            end if
+            if (mu == gam) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,tau) &
+                    & * OnsiteAO(mu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,tau) &
+                    & * OnsiteAO(mu,kap,2,1)
+              end do
+            end if
+            if (nu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * OnsiteAO(nu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * OnsiteAO(nu,kap,2,1)
+              end do
+            end if
+            if (nu == gam) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * OnsiteAO(nu,kap,1,1)
+                tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * OnsiteAO(nu,kap,2,1)
+              end do
+            end if
+
+            tmpHxcS(jj) = tmpHxcS(jj) + 0.25_dp * tmpvalue1s
+            tmpHxcD(jj) = tmpHxcD(jj) + 0.25_dp * tmpvalue1d
+
+          end if
+
+          ! long-range onsite terms
+          if (isRS_OnsCorr) then
+
+            ! (mu,nu,tau,gam)
+            tmpO1s = LrOnsiteAO(mu,tau,1)
+            tmpO2s = LrOnsiteAO(gam,nu,1)
+            tmpO3s = LrOnsiteAO(mu,nu,1)
+            tmpO4s = LrOnsiteAO(gam,tau,1)
+
+            tmpvalue1s = overSqr(mu,nu) * overSqr(gam,tau) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,tau) * overSqr(gam,nu) * (tmpO3s + tmpO4s)
+
+            tmpHxcS(jj) = tmpHxcS(jj) - 0.125_dp * tmpvalue1s
+
+            tmpvalue1s = 0.0_dp
+            if (mu == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,gam) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (mu == nu) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,gam) * overSqr(kap,tau) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (gam == tau) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(gam,kap,1)
+              end do
+            end if
+            if (gam == nu) then
+              do kap = 1, nOrb
+                tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                    & * LrOnsiteAO(gam,kap,1)
+              end do
+            end if
+
+            tmpHxcS(jj) = tmpHxcS(jj) - 0.125_dp * tmpvalue1s
+
+            tmpO1s = LrOnsiteAO(mu,tau,2)
+            tmpO2s = LrOnsiteAO(mu,nu,2)
+            tmpO3s = LrOnsiteAO(gam,tau,2)
+            tmpO4s = LrOnsiteAO(gam,nu,2)
+
+            tmpvalue1s = overSqr(mu,gam) * overSqr(tau,nu) * &
+                & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+
+            tmpHxcS(jj) = tmpHxcS(jj) + 0.5_dp * tmpvalue1s
+
+            ! (mu,nu,gam,tau)
+            tmpO1s = LrOnsiteAO(mu,gam,1)
+            tmpO2s = LrOnsiteAO(tau,nu,1)
+            tmpO3s = LrOnsiteAO(mu,nu,1)
+            tmpO4s = LrOnsiteAO(tau,gam,1)
+
+            tmpvalue2s = overSqr(mu,nu) * overSqr(tau,gam) * (tmpO1s + tmpO2s) &
+                & + overSqr(mu,gam) * overSqr(tau,nu) * (tmpO3s + tmpO4s)
+
+            tmpHxcS(jj) = tmpHxcS(jj) - 0.125_dp * tmpvalue2s
+
+            tmpvalue2s = 0.0_dp
+            if (mu == gam) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,tau) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (mu == nu) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,tau) * overSqr(kap,gam) &
+                    & * LrOnsiteAO(mu,kap,1)
+              end do
+            end if
+            if (tau == gam) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,mu) * overSqr(kap,nu) &
+                    & * LrOnsiteAO(tau,kap,1)
+              end do
+            end if
+            if (tau == nu) then
+              do kap = 1, nOrb
+                tmpvalue2s = tmpvalue2s + overSqr(kap,mu) * overSqr(kap,gam) &
+                    & * LrOnsiteAO(tau,kap,1)
+              end do
+            end if
+
+            tmpHxcS(jj) = tmpHxcS(jj) - 0.125_dp * tmpvalue2s
+
+            tmpO1s = LrOnsiteAO(mu,gam,2)
+            tmpO2s = LrOnsiteAO(mu,nu,2)
+            tmpO3s = LrOnsiteAO(tau,gam,2)
+            tmpO4s = LrOnsiteAO(tau,nu,2)
+
+            tmpvalue2s = overSqr(mu,tau) * overSqr(gam,nu) * &
+                & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+
+            tmpHxcS(jj) = tmpHxcS(jj) + 0.5_dp * tmpvalue2s
 
           end if
 
@@ -4814,10 +5055,17 @@ contains
         ! end of loop mu, nu
 
         ! calculate the ZmatL
-        do iL = 1, LmaxR
-          tmpZM(1,iL) = sum(tmpRmatL(:,iL)*tmpHxcS)
-          tmpZM(2,iL) = 0.0_dp
-        end do
+        if (isOnsite) then
+          do iL = 1, LmaxR
+            tmpZM(1,iL) = sum(tmpRmatL(:,iL)*tmpHxcS)
+            tmpZM(2,iL) = sum(tmpRmatL(:,iL)*tmpHxcD)
+          end do
+        else
+          do iL = 1, LmaxR
+            tmpZM(1,iL) = sum(tmpRmatL(:,iL)*tmpHxcS)
+            tmpZM(2,iL) = 0.0_dp
+          end do
+        end if
         call getZmatLoop_(tmpZM, orderRmatL, Lpaired, tau, gam, ZmatL)
 
       end do

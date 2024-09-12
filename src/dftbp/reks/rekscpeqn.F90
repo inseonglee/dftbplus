@@ -34,11 +34,12 @@ module dftbp_reks_rekscpeqn
 
   !> solve CP-REKS equation by using conjugate-gradient method
   subroutine CGgrad(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
-      & img2CentCell, orb, XT, A1e, A1ePre, HxcSqrS, HxcSqrD, HxcHalfS, &
-      & HxcHalfD, HxcSpS, HxcSpD, Fc, Fa, omega, SAweight, FONs, G1, GammaAO, &
-      & SpinAO, LrGammaAO, overSqr, over, eigenvecs, fillingL, weight, &
-      & ConvergeLimit, orderRmatL, getDenseAO, Lpaired, Nc, Na, maxIter, Glevel, &
-      & reksAlg, tSaveMem, isOnsite, isHybridXc, isHalf, ZT, RmatL, ZmatL, Q2mat)
+      & img2CentCell, orb, XT, A1e, A1ePre, HxcSqrS, HxcSqrD, HxcHalfS, HxcHalfD, &
+      & HxcSpS, HxcSpD, Fc, Fa, omega, SAweight, FONs, G1, GammaAO, SpinAO, &
+      & OnsiteAO, LrGammaAO, LrOnsiteAO, overSqr, over, eigenvecs, fillingL, &
+      & weight, ConvergeLimit, orderRmatL, getDenseAO, Lpaired, Nc, Na, maxIter, &
+      & Glevel, reksAlg, tSaveMem, isOnsite, isHybridXc, isRS_OnsCorr, isHalf, &
+      & ZT, RmatL, ZmatL, Q2mat)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -116,8 +117,14 @@ module dftbp_reks_rekscpeqn
     !> spin W in AO basis
     real(dp), intent(in) :: SpinAO(:,:)
 
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(in) :: OnsiteAO(:,:,:,:)
+
     !> long-range gamma integrals in AO basis
     real(dp), allocatable, intent(in) :: LrGammaAO(:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(in) :: LrOnsiteAO(:,:,:)
 
 
     !> Dense overlap matrix
@@ -172,6 +179,9 @@ module dftbp_reks_rekscpeqn
 
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
 
     !> Do we need half dense matrix to reduce compuational cost?
     logical, intent(in) :: isHalf
@@ -229,11 +239,11 @@ module dftbp_reks_rekscpeqn
     end if
     ! 2-electron part
     call getRmat(eigenvecs, ZT, fillingL, Nc, Na, reksAlg, RmatL)
-    call getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
-        & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, &
-        & HxcHalfS, HxcHalfD, HxcSpS, HxcSpD, overSqr, over, &
-        & GammaAO, SpinAO, LrGammaAO, orderRmatL, getDenseAO, &
-        & Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, isHalf, ZmatL)
+    call getZmat(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+        & img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, HxcHalfD, &
+        & HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
+        & LrOnsiteAO, orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, &
+        & isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
     call shiftAY2e_(ZmatL, eigenvecs, fillingL, weight, &
         & Nc, Na, reksAlg, shift2e)
 
@@ -265,11 +275,11 @@ module dftbp_reks_rekscpeqn
       end if
       ! 2-electron part
       call getRmat(eigenvecs, p0, fillingL, Nc, Na, reksAlg, RmatL)
-      call getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
-          & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, &
-          & HxcHalfS, HxcHalfD, HxcSpS, HxcSpD, overSqr, over, &
-          & GammaAO, SpinAO, LrGammaAO, orderRmatL, getDenseAO, &
-          & Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, isHalf, ZmatL)
+      call getZmat(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+          & img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, HxcHalfD, &
+          & HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
+          & LrOnsiteAO, orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, &
+          & isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
       call shiftAY2e_(ZmatL, eigenvecs, fillingL, weight, &
           & Nc, Na, reksAlg, shift2e)
 
@@ -330,11 +340,11 @@ module dftbp_reks_rekscpeqn
 
     ! converged R, Z, Q2 value
     call getRmat(eigenvecs, ZT, fillingL, Nc, Na, reksAlg, RmatL)
-    call getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
-        & iSparseStart, img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, &
-        & HxcHalfS, HxcHalfD, HxcSpS, HxcSpD, overSqr, over, &
-        & GammaAO, SpinAO, LrGammaAO, orderRmatL, getDenseAO, &
-        & Lpaired, Glevel, tSaveMem, isOnsite, isHybridXc, isHalf, ZmatL)
+    call getZmat(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+        & img2CentCell, orb, RmatL, HxcSqrS, HxcSqrD, HxcHalfS, HxcHalfD, &
+        & HxcSpS, HxcSpD, overSqr, over, GammaAO, SpinAO, OnsiteAO, LrGammaAO, &
+        & LrOnsiteAO, orderRmatL, getDenseAO, Lpaired, Glevel, tSaveMem, &
+        & isOnsite, isHybridXc, isRS_OnsCorr, isHalf, ZmatL)
     call getQ2mat(eigenvecs, fillingL, weight, ZmatL, Q2mat)
     write(stdOut,'(2x,a)') 'CG solver: Calculating converged R, Z, Q2 matrix'
     write(stdOut,"(A)") repeat("-", 82)

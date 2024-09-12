@@ -1164,13 +1164,13 @@ module dftbp_reks_reksinterface
           call getTwoIndices(this%nstates, ist, ia, ib, 1)
 
           ! get Z^delta values from R^delta values
-          call getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
-              & iSparseStart, img2CentCell, orb, this%RdelL(:,:,:,ist), &
-              & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
-              & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
-              & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-              & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, &
-              & this%isHybridXc, this%isHalf, this%ZdelL)
+          call getZmat(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+              & img2CentCell, orb, this%RdelL(:,:,:,ist), this%HxcSqrS, this%HxcSqrD, &
+              & this%HxcHalfS, this%HxcHalfD, this%HxcSpS, this%HxcSpD, this%overSqr, &
+              & over, this%GammaAO, this%SpinAO, this%OnsiteAO, this%LrGammaAO, &
+              & this%LrOnsiteAO, this%orderRmatL, this%getDenseAO, this%Lpaired, &
+              & this%Glevel, this%tSaveMem, this%isOnsite, this%isHybridXc, &
+              & this%isRS_OnsCorr, this%isHalf, this%ZdelL)
 
           ! build XTdel with Z^delta values
           call buildInteractionVectors(eigenvecs, this%ZdelL, this%fockFc, &
@@ -1271,14 +1271,14 @@ module dftbp_reks_reksinterface
             & '          run CG again to obtain ZT solution in (nac) case.'
       end if
       call CGgrad(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
-          & img2CentCell, orb, XT, this%A1e, this%A1ePre, this%HxcSqrS, &
-          & this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, this%HxcSpS, this%HxcSpD, &
-          & this%fockFc, this%fockFa, this%omega, this%SAweight, this%FONs, &
-          & this%G1, this%GammaAO, this%SpinAO, this%LrGammaAO, this%overSqr, &
+          & img2CentCell, orb, XT, this%A1e, this%A1ePre, this%HxcSqrS, this%HxcSqrD, &
+          & this%HxcHalfS, this%HxcHalfD, this%HxcSpS, this%HxcSpD, this%fockFc, &
+          & this%fockFa, this%omega, this%SAweight, this%FONs, this%G1, this%GammaAO, &
+          & this%SpinAO, this%OnsiteAO, this%LrGammaAO, this%LrOnsiteAO, this%overSqr, &
           & over, eigenvecs, this%fillingL, this%weight, this%Glimit, this%orderRmatL, &
           & this%getDenseAO, this%Lpaired, this%Nc, this%Na, this%CGmaxIter, this%Glevel, &
-          & this%reksAlg, this%tSaveMem, this%isOnsite, this%isHybridXc, this%isHAlf, &
-          & ZT, RmatL, ZmatL, Q2mat)
+          & this%reksAlg, this%tSaveMem, this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, &
+          & this%isHalf, ZT, RmatL, ZmatL, Q2mat)
 
     else if (this%Glevel == 3) then
 
@@ -1289,13 +1289,13 @@ module dftbp_reks_reksinterface
       if (.not. optionQMMM) then
         call getRmat(eigenvecs, ZT, this%fillingL, this%Nc, this%Na, &
             & this%reksAlg, RmatL)
-        call getZmat(env, denseDesc, neighbourList, nNeighbourSK, &
-            & iSparseStart, img2CentCell, orb, RmatL, &
-            & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
-            & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
-            & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-            & this%Lpaired, this%Glevel, this%tSaveMem, this%isOnsite, &
-            & this%isHybridXc, this%isHalf, ZmatL)
+        call getZmat(env, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+            & img2CentCell, orb, RmatL, this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, &
+            & this%HxcHalfD, this%HxcSpS, this%HxcSpD, this%overSqr, over, &
+            & this%GammaAO, this%SpinAO, this%OnsiteAO, this%LrGammaAO, &
+            & this%LrOnsiteAO, this%orderRmatL, this%getDenseAO, this%Lpaired, &
+            & this%Glevel, this%tSaveMem, this%isOnsite, this%isHybridXc, &
+            & this%isRS_OnsCorr, this%isHalf, ZmatL)
         call getQ2mat(eigenvecs, this%fillingL, this%weight, ZmatL, Q2mat)
         write(stdOut,"(A)") repeat("-", 82)
       end if
