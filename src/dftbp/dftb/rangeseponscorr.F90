@@ -159,19 +159,13 @@ contains
             ! Find l-shell for jOrb
             iSh2 = orb%iShellOrb(jOrb-ii+1,species(iAtom))
 
-            ! OC contribution except diagonal elements
-            if (iOrb /= jOrb) then
-              this%Omat0(iOrb,jOrb) = onSiteElements(iSh1,iSh2,3,species(iAtom))
-            end if
+            ! OC contribution
+            this%Omat0(iOrb,jOrb) = onSiteElements(iSh1,iSh2,3,species(iAtom))
 
-            ! RI loss correction for p orbitals
-            if (iSh1 == 2 .and. iSh2 == 2) then
-              if (iOrb == jOrb) then
-                fac = 2.0_dp
-              else
-                fac = -1.0_dp
-              end if
-              this%OmatRI(iOrb,jOrb) = fac * onSiteElements(iSh1,iSh2,3,species(iAtom))
+            ! RI loss correction
+            if (iSh1 == iSh2 .and. iSh1 > 1) then
+              this%OmatRI(iOrb,jOrb) = onSiteElements(iSh1,iSh2,3,species(iAtom)) &
+                  & / (2.0_dp * iSh1 - 1.0_dp) / 2.0_dp
             end if
 
           end do
@@ -350,7 +344,7 @@ contains
       real(dp), allocatable :: tmpVec(:)
       real(dp), allocatable :: Hvec(:)
 
-      real(dp) :: fac
+      real(dp) :: fac, facRI
       integer :: nOrb, iOrb, jOrb
 
       nOrb = size(Smat,dim=1)
@@ -361,49 +355,52 @@ contains
       allocate(tmpVec(nOrb))
       allocate(Hvec(nOrb))
 
+      if (this%tSpin .or. this%tREKS) then
+        fac = -0.25_dp
+        facRI = 1.0_dp
+      else
+        fac = -0.125_dp
+        facRI = 0.5_dp
+      end if
+
       call gemm(PS, Dmat, Smat)
 
       HlrOC(:,:) = 0.0_dp
 
-      ! OC contribution: 1st term
+      ! OC contribution: external overlap term
       tmpMat(:,:) = Dmat * Smat
-      call gemm(Hmat, this%Omat0, tmpMat)
-      Hvec(:) = sum(Hmat,dim=2)
+      tmpVec(:) = sum(tmpMat,dim=2)
+      call gemv(Hvec, this%Omat0, tmpVec)
       do iOrb = 1, nOrb
         do jOrb = 1, nOrb
-          HlrOC(iOrb,jOrb) = HlrOC(iOrb,jOrb) + Smat(iOrb,jOrb) * &
+          HlrOC(iOrb,jOrb) = HlrOC(iOrb,jOrb) + fac * Smat(iOrb,jOrb) * &
               & (Hvec(iOrb) + Hvec(jOrb))
         end do
       end do
 
-      ! OC contribution: 2nd term
-      call gemm(Hmat, Smat, PS)
-      HlrOC(:,:) = HlrOC + this%Omat0 * Hmat
+      ! OC & RI contributions: S(P*O)S + SPS*O
+      tmpMat(:,:) = fac * Dmat * this%Omat0 + facRI * Dmat * this%OmatRI
+      call gemm(Hmat, tmpMat, Smat)
+      call gemm(HlrOC, Smat, Hmat, beta=1.0_dp)
 
-      Hmat(:,:) = Dmat * this%Omat0
-      call gemm(tmpMat, Hmat, Smat)
-      call gemm(HlrOC, Smat, tmpMat, alpha=1.0_dp, beta=1.0_dp)
-
-      ! OC contribution: 3rd term
-      tmpMat(:,:) = PS * this%Omat0
-      call gemm(HlrOC, tmpMat, Smat, alpha=1.0_dp, beta=1.0_dp)
-
-      ! OC contribution: 4th term
-      tmpMat(:,:) = transpose(PS) * this%Omat0
-      call gemm(HlrOC, Smat, tmpMat, alpha=1.0_dp, beta=1.0_dp)
-
-      ! OC contribution: 5th term
       call gemm(tmpMat, Smat, PS)
-      tmpVec(:) = 0.0_dp
-      do iOrb = 1, nOrb
-        tmpVec(iOrb) = tmpMat(iOrb,iOrb)
-      end do
+      HlrOC(:,:) = HlrOC + tmpMat * (fac * this%Omat0 + facRI * this%OmatRI)
+
+      ! OC & RI contributions: S(PS*O) and its transpose part
+      tmpMat(:,:) = fac * PS * this%Omat0 + facRI * transpose(PS) * this%OmatRI
+      call gemm(HlrOC, tmpMat, Smat, beta=1.0_dp)
+
+      call gemm(HlrOC, Smat, tmpMat, transB="T", beta=1.0_dp)
+
+      ! OC contribution: diagonal element for Hamiltonian
+      tmpMat(:,:) = PS * Smat
+      tmpVec(:) = sum(tmpMat,dim=1)
       call gemv(Hvec, this%Omat0, tmpVec)
       do iOrb = 1, nOrb
-        HlrOC(iOrb,iOrb) = HlrOC(iOrb,iOrb) + Hvec(iOrb)
+        HlrOC(iOrb,iOrb) = HlrOC(iOrb,iOrb) + fac * Hvec(iOrb)
       end do
 
-      ! OC contribution: 6th term
+      ! OC contribution: diagonal element for density
       tmpVec(:) = 0.0_dp
       do iOrb = 1, nOrb
         tmpVec(iOrb) = Dmat(iOrb,iOrb)
@@ -414,30 +411,7 @@ contains
         Hmat(iOrb,iOrb) = Hvec(iOrb)
       end do
       call gemm(tmpMat, Hmat, Smat)
-      call gemm(HlrOC, Smat, tmpMat, alpha=1.0_dp, beta=1.0_dp)
-
-      ! RI loss correction term
-      fac = 2.0_dp / 3.0_dp
-
-      tmpMat(:,:) = transpose(PS) * this%OmatRI
-      call gemm(HlrOC, tmpMat, Smat, alpha=fac, beta=1.0_dp)
-
-      call gemm(tmpMat, Smat, PS)
-      Hmat(:,:) = tmpMat * this%OmatRI
-      HlrOC(:,:) = HlrOC + HMat * fac
-
-      Hmat(:,:) = Dmat * this%OmatRI
-      call gemm(tmpMat, Hmat, Smat)
       call gemm(HlrOC, Smat, tmpMat, alpha=fac, beta=1.0_dp)
-
-      tmpMat(:,:) = PS * this%OmatRI
-      call gemm(HlrOC, Smat, tmpMat, alpha=fac, beta=1.0_dp)
-
-      if (this%tSpin .or. this%tREKS) then
-        HlrOC(:,:) = -0.25_dp * HlrOC
-      else
-        HlrOC(:,:) = -0.125_dp * HlrOC
-      end if
 
     end subroutine evaluateHamiltonian
 
@@ -460,12 +434,65 @@ contains
   end subroutine addLrOcEnergy
 
 
+  !> Interface routine.
+  subroutine addLrOcGradients(this, gradients, derivator, skOverCont, coords, nNeighbourSK,&
+      & iNeighbour, iSquare, species, orb, densSqr, overlap)
+
+    !> class instance
+    class(TRangeSepOnsCorrFunc), intent(inout) :: this
+
+    !> energy gradients
+    real(dp), intent(inout) :: gradients(:,:)
+
+    !> differentiation object
+    class(TNonSccDiff), intent(in) :: derivator
+
+    !> sparse overlap part
+    type(TSlakoCont), intent(in) :: skOverCont
+
+    !> atomic coordinates
+    real(dp), intent(in) :: coords(:,:)
+
+    !> number of atoms neighbouring each site where the overlap is non-zero
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> neighbours of atoms
+    integer, intent(in) :: iNeighbour(0:,:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, dimension(:), intent(in) :: iSquare
+
+    !> species of all atoms
+    integer, intent(in) :: species(:)
+
+    !> orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Square (unpacked) density matrix
+    real(dp), intent(in) :: densSqr(:,:,:)
+
+    !> square real overlap matrix
+    real(dp), intent(in) :: overlap(:,:)
+
+    select case(this%hybridXcAlg)
+    case (hybridXcAlgo%thresholdBased)
+      ! not supported at the moment
+    case (hybridXcAlgo%neighbourBased)
+      ! not supported at the moment
+    case (hybridXcAlgo%matrixBased)
+      call addLrOcGradientsMatrix(this, gradients, derivator, skOverCont, coords, nNeighbourSK,&
+          & iNeighbour, iSquare, species, orb, densSqr, overlap)
+    end select
+
+  end subroutine addLrOcGradients
+
+
   !> Update gradients with long-range onsite contribution
   !>
   !> The routine provides a matrix-matrix multiplication based implementation of
   !> Eq. 29 in https://doi.org/10.1021/acs.jctc.2c00037
   !>
-  subroutine addLrOcGradients(this, gradients, derivator, skOverCont, coords, nNeighbourSK,&
+  subroutine addLrOcGradientsMatrix(this, gradients, derivator, skOverCont, coords, nNeighbourSK,&
       & iNeighbour, iSquare, species, orb, densSqr, overlap)
 
     !> class instance
@@ -515,11 +542,10 @@ contains
 
     real(dp), allocatable :: shiftSqr(:,:,:)
     real(dp), allocatable :: sPrimeTmp(:,:,:)
-    real(dp), allocatable :: shift(:,:,:)
+    real(dp), allocatable :: shift(:,:)
     real(dp), allocatable :: tmpForce(:)
-    real(dp), allocatable :: tmpDeriv(:,:)
 
-    real(dp) :: fac
+    real(dp) :: fac, facRI
     integer :: nOrb, nSpin, nAtom
     integer :: iOrb, mu, nu, iSpin, iAtA, iAtB, iNeighA, ii
     integer :: iAtMu1, iAtMu2, iAtNu1, iAtNu2
@@ -536,12 +562,19 @@ contains
 
     allocate(shiftSqr(nOrb,nOrb,nSpin))
     allocate(sPrimeTmp(orb%mOrb,orb%mOrb,3))
-    allocate(shift(orb%mOrb,orb%mOrb,nSpin))
+    allocate(shift(orb%mOrb,orb%mOrb))
     allocate(tmpForce(3))
-    allocate(tmpDeriv(3,nAtom))
 
     ! Initialize several matrices for calculation of gradients
     call allocateAndInit(this, overlap, densSqr, Smat, Dmat)
+
+    if (this%tSpin .or. this%tREKS) then
+      fac = -0.25_dp
+      facRI = 1.0_dp
+    else
+      fac = -0.125_dp
+      facRI = 0.5_dp
+    end if
 
     do iSpin = 1, nSpin
       call gemm(PS(:,:,iSpin), Dmat(:,:,iSpin), Smat)
@@ -550,15 +583,14 @@ contains
     ! shift values
     shiftSqr(:,:,:) = 0.0_dp
 
-    ! OC contribution: 4th term - a
     do iSpin = 1, nSpin
 
+      ! OC contribution: diagonal element for PS
       tmpVec(:) = 0.0_dp
       do iOrb = 1, nOrb
         tmpVec(iOrb) = PS(iOrb,iOrb,iSpin)
       end do
-      call gemv(Hvec, this%Omat0, tmpVec)
-
+      call gemv(Hvec, this%Omat0, tmpVec, alpha=fac)
       do mu = 1, nOrb
         do nu = 1, nOrb
           shiftSqr(mu,nu,iSpin) = shiftSqr(mu,nu,iSpin)&
@@ -566,39 +598,12 @@ contains
         end do
       end do
 
-    end do
-
-    ! OC contribution: 4th term - b
-    do iSpin = 1, nSpin
-
-      tmpMat(:,:) = 0.0_dp
-      tmpMat(:,:) = Dmat(:,:,iSpin) * this%Omat0
-      call gemm(Hmat, PS(:,:,iSpin), tmpMat)
-
-      shiftSqr(:,:,iSpin) = shiftSqr(:,:,iSpin) + (transpose(Hmat) + Hmat)
-
-    end do
-
-    ! OC contribution: 5th term - a
-    do iSpin = 1, nSpin
-
-      tmpMat(:,:) = 0.0_dp
-      tmpMat(:,:) = PS(:,:,iSpin) * this%Omat0
-      call gemm(Hmat, Dmat(:,:,iSpin), tmpMat)
-
-      shiftSqr(:,:,iSpin) = shiftSqr(:,:,iSpin) + (transpose(Hmat) + Hmat)
-
-    end do
-
-    ! OC contribution: 5th term - b
-    do iSpin = 1, nSpin
-
+      ! OC contribution: diagonal element for density
       tmpVec(:) = 0.0_dp
       do iOrb = 1, nOrb
         tmpVec(iOrb) = Dmat(iOrb,iOrb,iSpin)
       end do
-      call gemv(Hvec, this%Omat0, tmpVec)
-
+      call gemv(Hvec, this%Omat0, tmpVec, alpha=fac)
       do mu = 1, nOrb
         do nu = 1, nOrb
           shiftSqr(mu,nu,iSpin) = shiftSqr(mu,nu,iSpin)&
@@ -606,30 +611,22 @@ contains
         end do
       end do
 
-    end do
+      ! OC & RI contributions: PS(P*O) + (P*O)SP
+      tmpMat(:,:) = fac * Dmat(:,:,iSpin) * this%Omat0 + &
+          & facRI * Dmat(:,:,iSpin) * this%OmatRI
+      call gemm(Hmat, PS(:,:,iSpin), tmpMat)
+      shiftSqr(:,:,iSpin) = shiftSqr(:,:,iSpin) + (transpose(Hmat) + Hmat)
 
-    ! RI loss correction: 6th term - a
-    fac = 4.0_dp / 3.0_dp
-
-    do iSpin = 1, nSpin
-
-      tmpMat(:,:) = 0.0_dp
-      tmpMat(:,:) = PS(:,:,iSpin) * this%OmatRI
-      call gemm(shiftSqr(:,:,iSpin), tmpMat, Dmat(:,:,iSpin), alpha=fac, beta=1.0_dp)
-
-    end do
-
-    ! RI loss correction: 6th term - b
-    do iSpin = 1, nSpin
-
-      tmpMat(:,:) = 0.0_dp
-      tmpMat(:,:) = Dmat(:,:,iSpin) * this%OmatRI
-      call gemm(shiftSqr(:,:,iSpin), tmpMat, PS(:,:,iSpin), transB="T", alpha=fac, beta=1.0_dp)
+      ! OC contribution: (SP*O)P + P(PS*O)
+      ! RI contribution: (PS*O)P + P(SP*O)
+      tmpMat(:,:) = fac * PS(:,:,iSpin) * this%Omat0 + &
+          & facRI * transpose(PS(:,:,iSpin)) * this%OmatRI
+      call gemm(Hmat, Dmat(:,:,iSpin), tmpMat)
+      shiftSqr(:,:,iSpin) = shiftSqr(:,:,iSpin) + (transpose(Hmat) + Hmat)
 
     end do
 
     ! Compute gradients originating from onsite contribution with range separated hybrid functional
-    tmpDeriv(:,:) = 0.0_dp
 
     ! sum A
     loopA: do iAtA = 1, nAtom
@@ -650,11 +647,11 @@ contains
           iAtNu2 = iSquare(iAtB+1) - 1
 
           ! shift values for gradient
-          shift(:,:,:) = 0.0_dp
+          shift(:,:) = 0.0_dp
           do iSpin = 1, nSpin
             do mu = iAtMu1, iAtMu2
               do nu = iAtNu1, iAtNu2
-                shift(nu-iAtNu1+1,mu-iAtMu1+1,iSpin) = shift(nu-iAtNu1+1,mu-iAtMu1+1,iSpin)&
+                shift(nu-iAtNu1+1,mu-iAtMu1+1) = shift(nu-iAtNu1+1,mu-iAtMu1+1)&
                     & + shiftSqr(mu,nu,iSpin) + shiftSqr(nu,mu,iSpin)
               end do
             end do
@@ -662,25 +659,17 @@ contains
 
           tmpForce(:) = 0.0_dp
           do ii = 1, 3
-            do iSpin = 1, nSpin
-              tmpForce(ii) = tmpForce(ii) + sum(shift(:,:,iSpin)*sPrimeTmp(:,:,ii))
-            end do
+            tmpForce(ii) = sum(shift(:,:)*sPrimeTmp(:,:,ii))
           end do
 
           ! forces from atom A on atom B and B onto A
-          tmpDeriv(:,iAtA) = tmpDeriv(:,iAtA) + tmpForce(:)
-          tmpDeriv(:,iAtB) = tmpDeriv(:,iAtB) - tmpForce(:)
+          gradients(:,iAtA) = gradients(:,iAtA) + tmpForce
+          gradients(:,iAtB) = gradients(:,iAtB) - tmpForce
 
         end if
 
       end do loopB
     end do loopA
-
-    if (this%tSpin .or. this%tREKS) then
-      gradients(:,:) = gradients - 0.25_dp * tmpDeriv
-    else
-      gradients(:,:) = gradients - 0.125_dp * tmpDeriv
-    end if
 
   contains
 
@@ -717,6 +706,6 @@ contains
 
     end subroutine allocateAndInit
 
-  end subroutine addLrOcGradients
+  end subroutine addLrOcGradientsMatrix
 
 end module dftbp_dftb_rangeseponscorr
