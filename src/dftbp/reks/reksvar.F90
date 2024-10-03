@@ -1286,6 +1286,10 @@ module dftbp_reks_reksvar
         call error("Only single-state REKS can evaluate stress")
       end if
 
+      if (this%tStress .and. (this%isHybridXc .or. this%isRS_OnsCorr)) then
+        call error("Stress evalulation is not compatible with Hybrid functional")
+      end if
+
       ! REKS system requirements
 
       if (this%Plevel > 2 .or. this%Plevel < 0) then

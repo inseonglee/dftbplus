@@ -59,7 +59,7 @@ contains
   !> Calculate energy weighted density matrix for each microstate
   subroutine getEnergyWeightedDensityL(env, denseDesc, neighbourList, &
       & nNeighbourSK, iSparseStart, img2CentCell, orb, hamSqrL, hamSpL, &
-      & fillingL, eigenvecs, Lpaired, Efunc, isHybridXc, edmSpL)
+      & fillingL, eigenvecs, Lpaired, Efunc, isHybridXc, isRS_OnsCorr, edmSpL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -103,6 +103,9 @@ contains
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     !> sparse energy-weighted density matrix for each microstate
     real(dp), intent(out) :: edmSpL(:,:)
 
@@ -115,14 +118,14 @@ contains
     nOrb = size(fillingL,dim=1)
 
     allocate(tmpEps(nOrb,nOrb))
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
 
     edmSpL(:,:) = 0.0_dp
     do iL = 1, Lmax
 
-      if (isHybridXc) then
+      if (isHybridXc .or. isRS_OnsCorr) then
         if (Efunc == 1) then
           ! For single-state REKS, current hamSqrL is still in AO basis
           ! since the secular equation routine is not used
@@ -146,7 +149,7 @@ contains
       tmpEps(:,:) = 0.0_dp
       do i = 1, nOrb
         do j = 1, nOrb
-          if (isHybridXc) then
+          if (isHybridXc .or. isRS_OnsCorr) then
             tmpEps(i,j) = (fillingL(i,1,iL) + fillingL(j,1,iL)) &
                 & * hamSqrL(i,j,1,iL) * 0.5_dp
           else
@@ -733,8 +736,8 @@ contains
   !> Calculate G1, weightIL, omega, Rab variables
   subroutine getG1ILOmegaRab(env, denseDesc, neighbourList, &
       & nNeighbourSK, iSparseStart, img2CentCell, eigenvecs, hamSqrL, &
-      & hamSpL, fockFa, fillingL, FONs, SAweight, enLtot, hess, &
-      & Nc, Na, reksAlg, tSSR, isHybridXc, G1, weightIL, omega, Rab)
+      & hamSpL, fockFa, fillingL, FONs, SAweight, enLtot, hess, Nc, Na, &
+      & reksAlg, tSSR, isHybridXc, isRS_OnsCorr, G1, weightIL, omega, Rab)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -796,6 +799,9 @@ contains
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     !> constant calculated from hessian and energy of microstates
     real(dp), intent(out) :: G1
 
@@ -819,7 +825,7 @@ contains
     Lmax = size(fillingL,dim=3)
     Nv = nOrb - Nc - Na
 
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
 
@@ -854,7 +860,7 @@ contains
     omega(:) = 0.0_dp
     do iL = 1, Lmax
 
-      if (isHybridXc) then
+      if (isHybridXc .or. isRS_OnsCorr) then
 
         ! set omega value
         do ij = 1, superN
@@ -1019,7 +1025,7 @@ contains
   !> Calculate X^T vectors for state X = PPS, OSS, etc
   subroutine buildSaReksVectors(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, eigenvecs, hamSqrL, hamSpL, fillingL, &
-      & weightL, Nc, Na, rstate, reksAlg, tSSR, isHybridXc, XT)
+      & weightL, Nc, Na, rstate, reksAlg, tSSR, isHybridXc, isRS_OnsCorr, XT)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1072,6 +1078,9 @@ contains
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     !> SA-REKS state vector
     real(dp), intent(out) :: XT(:,:)
 
@@ -1087,14 +1096,14 @@ contains
     superN = size(XT,dim=1)
     Nv = nOrb - Nc - Na
 
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
 
     XT(:,:) = 0.0_dp
     do iL = 1, Lmax
 
-      if (isHybridXc) then
+      if (isHybridXc .or. isRS_OnsCorr) then
 
         if (tSSR) then
           do ist = 1, nstates
@@ -1258,7 +1267,7 @@ contains
   !> Calculate X^T_L vector for L-th microstate
   subroutine buildLstateVector(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, eigenvecs, hamSqrL, hamSpL, fillingL, &
-      & Nc, Na, Lstate, Lpaired, reksAlg, isHybridXc, XTL)
+      & Nc, Na, Lstate, Lpaired, reksAlg, isHybridXc, isRS_OnsCorr, XTL)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1308,6 +1317,9 @@ contains
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     !> L-th microstate vector
     real(dp), intent(out) :: XTL(:)
 
@@ -1322,7 +1334,7 @@ contains
     superN = size(XTL,dim=1)
     Nv = nOrb - Nc - Na
 
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
 
@@ -1345,7 +1357,7 @@ contains
         iL = tmpL
       end if
 
-      if (isHybridXc) then
+      if (isHybridXc .or. isRS_OnsCorr) then
 
         do ij = 1, superN
           ! assign index i and j from ij

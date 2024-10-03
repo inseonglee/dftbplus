@@ -914,7 +914,7 @@ module dftbp_reks_reksinterface
     call getEnergyWeightedDensityL(env, denseDesc, neighbourList, &
         & nNeighbourSK, iSparseStart, img2CentCell, orb, this%hamSqrL, &
         & this%hamSpL, this%fillingL, eigenvecs(:,:,1), this%Lpaired, &
-        & this%Efunction, this%isHybridXc, this%edmSpL)
+        & this%Efunction, this%isHybridXc, this%isRS_OnsCorr, this%edmSpL)
     call env%globalTimer%stopTimer(globalTimers%energyDensityMatrix)
 
     ! rhoSpL has (my_qm) component
@@ -1095,8 +1095,8 @@ module dftbp_reks_reksinterface
     call getG1ILOmegaRab(env, denseDesc, neighbourList, nNeighbourSK, &
         & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
         & this%fockFa, this%fillingL, this%FONs, this%SAweight, this%enLtot, &
-        & this%hess, this%Nc, this%Na, this%reksAlg, this%tSSR, &
-        & this%isHybridXc, this%G1, this%weightIL, this%omega, this%Rab)
+        & this%hess, this%Nc, this%Na, this%reksAlg, this%tSSR, this%isHybridXc, &
+        & this%isRS_OnsCorr, this%G1, this%weightIL, this%omega, this%Rab)
 
     ! get A1e or Aall values based on GradOpt
     call getSuperAMatrix(eigenvecs, this%HxcSqrS, this%HxcSqrD, this%fockFc, &
@@ -1151,7 +1151,7 @@ module dftbp_reks_reksinterface
       call buildSaReksVectors(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
           & this%fillingL, this%weightL, this%Nc, this%Na, this%rstate, &
-          & this%reksAlg, this%tSSR, this%isHybridXc, this%XT)
+          & this%reksAlg, this%tSSR, this%isHybridXc, this%isRS_OnsCorr, this%XT)
 
       if (this%tSSR) then
 
@@ -1196,7 +1196,7 @@ module dftbp_reks_reksinterface
       call buildLstateVector(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
           & this%fillingL, this%Nc, this%Na, this%Lstate, this%Lpaired, &
-          & this%reksAlg, this%isHybridXc, this%XT(:,1))
+          & this%reksAlg, this%isHybridXc, this%isRS_OnsCorr, this%XT(:,1))
 
     end if
 

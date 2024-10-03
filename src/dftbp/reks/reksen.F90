@@ -220,7 +220,7 @@ module dftbp_reks_reksen
     call getFockFcFa_(env, denseDesc, neighbourList, nNeighbourSK, &
         & iSparseStart, img2CentCell, this%hamSqrL, this%hamSpL, this%weight, &
         & this%fillingL, this%Nc, this%Na, this%Lpaired, this%isHybridXc, &
-        & orbFON, this%fockFc, this%fockFa)
+        & this%isRS_OnsCorr, orbFON, this%fockFc, this%fockFa)
 
     call matAO2MO(this%fockFc, eigenvecs(:,:,1))
     do ii = 1, this%Na
@@ -341,7 +341,7 @@ module dftbp_reks_reksen
     call getLagrangians_(env, denseDesc, neighbourList, nNeighbourSK, &
         & iSparseStart, img2CentCell, eigenvecs(:,:,1), this%hamSqrL, &
         & this%hamSpL, this%weight, this%fillingL, this%Nc, this%Na, &
-        & this%Lpaired, this%isHybridXc, Wab)
+        & this%Lpaired, this%isHybridXc, this%isRS_OnsCorr, Wab)
 
     select case (this%reksAlg)
     case (reksTypes%noReks)
@@ -665,7 +665,7 @@ module dftbp_reks_reksen
   !> Calculate Fc and Fa from Hamiltonian of each microstate
   subroutine getFockFcFa_(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, hamSqrL, hamSpL, weight, fillingL, &
-      & Nc, Na, Lpaired, isHybridXc, orbFON, Fc, Fa)
+      & Nc, Na, Lpaired, isHybridXc, isRS_OnsCorr, orbFON, Fc, Fa)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -718,6 +718,9 @@ module dftbp_reks_reksen
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     real(dp), allocatable :: tmpHam(:,:)
 
     integer :: iL, Lmax, nOrb
@@ -725,7 +728,7 @@ module dftbp_reks_reksen
     nOrb = size(Fc,dim=1)
     Lmax = size(weight,dim=1)
 
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
 
@@ -735,7 +738,7 @@ module dftbp_reks_reksen
     Fa(:,:,:) = 0.0_dp
     do iL = 1, Lmax
 
-      if (.not. isHybridXc) then
+      if (.not. (isHybridXc .or. isRS_OnsCorr)) then
         tmpHam(:,:) = 0.0_dp
         ! convert from sparse to dense for hamSpL in AO basis
         ! hamSpL has (my_ud) component
@@ -747,7 +750,7 @@ module dftbp_reks_reksen
       end if
 
       ! compute the Fock operator with core, a, b orbitals in AO basis
-      if (isHybridXc) then
+      if (isHybridXc .or. isRS_OnsCorr) then
         call fockFcAO_(hamSqrL(:,:,1,iL), weight, Lpaired, iL, Fc)
         call fockFaAO_(hamSqrL(:,:,1,iL), weight, fillingL, orbFON, &
             & Nc, Na, Lpaired, iL, Fa)
@@ -1010,7 +1013,7 @@ module dftbp_reks_reksen
   !> Calculate converged Lagrangian values
   subroutine getLagrangians_(env, denseDesc, neighbourList, nNeighbourSK, &
       & iSparseStart, img2CentCell, eigenvecs, hamSqrL, hamSpL, weight, &
-      & fillingL, Nc, Na, Lpaired, isHybridXc, Wab)
+      & fillingL, Nc, Na, Lpaired, isHybridXc, isRS_OnsCorr, Wab)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1057,6 +1060,9 @@ module dftbp_reks_reksen
     !> Whether to run a range separated calculation
     logical, intent(in) :: isHybridXc
 
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
     !> converged Lagrangian values within active space
     real(dp), intent(out) :: Wab(:,:)
 
@@ -1070,7 +1076,7 @@ module dftbp_reks_reksen
     Lmax = size(fillingL,dim=3)
     nActPair = Na * (Na - 1) / 2
 
-    if (.not. isHybridXc) then
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
       allocate(tmpHam(nOrb,nOrb))
     end if
     allocate(tmpHamL(nActPair,1,Lmax))
@@ -1082,7 +1088,7 @@ module dftbp_reks_reksen
 
       do iL = 1, Lmax
 
-        if (isHybridXc) then
+        if (isHybridXc .or. isRS_OnsCorr) then
           ! convert hamSqrL from AO basis to MO basis
           ! hamSqrL has (my_ud) component
           if (ist == 1) then
