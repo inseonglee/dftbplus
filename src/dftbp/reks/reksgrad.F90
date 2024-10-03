@@ -2459,7 +2459,7 @@ contains
         call qm2ud(qBlockL(:,:,:,:,iL))
       end do
 
-      call getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
+      call getOnsiteTerms_(orb, Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
           & tmpRmatL, tmpRdelL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
           & denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
 
@@ -2538,9 +2538,9 @@ contains
     if (isRS_OnsCorr) then
       ! Note that SP and R matrices are already computed
       ! range-separated onsite term with half dense R and T variables
-      call getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP, tmpRmatL,&
-          & tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
-          & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
+      call getLrOnsiteTerms_(orb, Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
+          & tmpRmatL, tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
+          & orderRmatL, SAstates, tNAC, deriv1, deriv2)
     end if
 
     ! calculate the final gradient
@@ -5629,9 +5629,12 @@ contains
 
 
   !> Calculate R*T contribution of gradient from onsite term
-  subroutine getOnsiteTerms_(Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
-      & RmatSpL, RdelSpL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
-      & iSquare, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+  subroutine getOnsiteTerms_(orb, Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
+      & RmatSpL, RdelSpL, weight, getDenseAO, getDenseAtom, getAtomIndex, iSquare, &
+      & orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+
+    !> atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> Dense overlap derivative in AO basis
     real(dp), intent(in) :: Sderiv(:,:,:)
@@ -5722,9 +5725,9 @@ contains
     nAtom = size(qBlockL,dim=3)
     nAtomSparse = size(getDenseAtom,dim=1)
     nstates = size(RmatSpL,dim=3)
-    nstHalf = nstates * (nstates - 1) /2
+    nstHalf = nstates * (nstates - 1) / 2
 
-    mOrb = size(qBlockL,dim=1)
+    mOrb = orb%mOrb
     nOrb = size(overSqr,dim=1)
     sparseSize = size(RmatSpL,dim=1)
 
@@ -5789,7 +5792,9 @@ contains
       iAtom1 = getDenseAtom(k,1)
       iAtom2 = getDenseAtom(k,2)
 
-      if (iAtom1 /= iAtom2) then
+      ! There is no force contribution between hydrogen atoms for onsite correction
+      if (.not.(orb%nOrbAtom(iAtom1) == 1 .and. orb%nOrbAtom(iAtom2) == 1) &
+          & .and. (iAtom1 /= iAtom2)) then
 
         iAtTau1 = iSquare(iAtom1)
         iAtTau2 = iSquare(iAtom1+1) - 1
@@ -6606,9 +6611,12 @@ contains
 
 
   !> Calculate R*T contribution of gradient from range-separated onsite term
-  subroutine getLrOnsiteTerms_(Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
-      & RmatHalfL, RdelHalfL, weight, getDenseAtom, getAtomIndex, iSquare,&
-      & orderRmatL, SAstates, mOrb, tNAC, deriv1, deriv2)
+  subroutine getLrOnsiteTerms_(orb, Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO,&
+      & SP, RmatHalfL, RdelHalfL, weight, getDenseAtom, getAtomIndex, iSquare,&
+      & orderRmatL, SAstates, tNAC, deriv1, deriv2)
+
+    !> atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> Dense overlap derivative in AO basis
     real(dp), intent(in) :: Sderiv(:,:,:)
@@ -6648,9 +6656,6 @@ contains
 
     !> Number of states used in state-averaging
     integer, intent(in) :: SAstates
-
-    !> Max. nr. of orbitals for any species
-    integer, intent(in) :: mOrb
 
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
@@ -6694,15 +6699,16 @@ contains
     real(dp), allocatable :: TderivL(:,:,:,:)       ! nOrbHalf, 3, Lmax, Ncpu
 
     integer :: iAtom1, iAtom2, iAtom3, iAtom4, nAtom, k, nAtomSparse
-    integer :: ist, nstates, nstHalf, mu, nu, nOrb
+    integer :: ist, nstates, nstHalf, mu, nu, mOrb, nOrb
     integer :: l, nOrbHalf, iL, Lmax, id, Ncpu
     integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
 
     nAtom = size(deriv1,dim=2)
     nAtomSparse = size(getDenseAtom,dim=1)
     nstates = size(RmatHalfL,dim=3)
-    nstHalf = nstates * (nstates - 1) /2
+    nstHalf = nstates * (nstates - 1) / 2
 
+    mOrb = orb%mOrb
     nOrb = size(deltaRhoSqrL,dim=1)
     nOrbHalf = size(RmatHalfL,dim=1)
 
@@ -6776,7 +6782,9 @@ contains
       iAtom1 = getDenseAtom(k,1)
       iAtom2 = getDenseAtom(k,2)
 
-      if (iAtom1 /= iAtom2) then
+      ! There is no force contribution between hydrogen atoms for onsite correction
+      if (.not.(orb%nOrbAtom(iAtom1) == 1 .and. orb%nOrbAtom(iAtom2) == 1) &
+          & .and. (iAtom1 /= iAtom2)) then
 
         iAtTau1 = iSquare(iAtom1)
         iAtTau2 = iSquare(iAtom1+1) - 1
