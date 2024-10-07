@@ -33,7 +33,7 @@ module dftbp_reks_reksgrad
   use dftbp_math_lapackroutines, only : getrf, getri
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : assignEpsilon, assignIndex, getTwoIndices, matAO2MO, matMO2AO,&
-      & findShellOfAO, qm2udL, ud2qmL, qmExpandL, udExpandL
+      & qm2udL, ud2qmL, qmExpandL, udExpandL
   use dftbp_reks_reksvar, only : reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -414,7 +414,7 @@ contains
 
 
   !> Calculate SCC, spin, LC parameters with matrix form
-  subroutine getFullLongRangePars(env, sccCalc, hybridXc, coords, species,&
+  subroutine getFullLongRangePars(env, sccCalc, hybridXc, orb, coords, species,&
       & iNeighbour, img2CentCell, iSquare, spinW, onSiteElements, getAtomIndex,&
       & isOnsite, isHybridXc,  isRS_OnsCorr, GammaAO, GammaDeriv, SpinAO, OnsiteAO,&
       & LrGammaAO, LrGammaDeriv, LrOnsiteAO)
@@ -427,6 +427,9 @@ contains
 
     !> Range separation contributions
     class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> list of all atomic coordinates
     real(dp), intent(in) :: coords(:,:)
@@ -487,7 +490,7 @@ contains
 
     real(dp) :: fac1, fac2
     integer :: nOrb, nAtom
-    integer :: mu, nu, G1, G2, ii, iAt1, iAt2, iSp1, iSp2, iSpin
+    integer :: mu, nu, ii, iAt1, iAt2, iSh1, iSh2, iSpin
 
     nOrb = size(GammaAO,dim=1)
     nAtom = size(iSquare,dim=1) - 1
@@ -521,16 +524,16 @@ contains
     do mu = 1, nOrb
       do nu = mu, nOrb
         ! find proper atom index
-        G1 = getAtomIndex(mu)
-        G2 = getAtomIndex(nu)
-        if (G1 == G2) then
+        iAt1 = getAtomIndex(mu)
+        iAt2 = getAtomIndex(nu)
+        if (iAt1 == iAt2) then
 
-          ! set the orbital shell for mu index
-          call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
-          ! set the orbital shell for nu index
-          call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+          ! Find l-shell for mu
+          iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+          ! Find l-shell for nu
+          iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
 
-          SpinAO(nu,mu) = spinW(iSp2,iSp1,species(G1))
+          SpinAO(nu,mu) = spinW(iSh2,iSh1,species(iAt1))
 
           if (nu /= mu) then
             SpinAO(mu,nu) = SpinAO(nu,mu)
@@ -547,22 +550,22 @@ contains
       do mu = 1, nOrb
         do nu = mu, nOrb
           ! find proper atom index
-          G1 = getAtomIndex(mu)
-          G2 = getAtomIndex(nu)
-          if (G1 == G2) then
+          iAt1 = getAtomIndex(mu)
+          iAt2 = getAtomIndex(nu)
+          if (iAt1 == iAt2) then
 
-            ! set the orbital shell for mu index
-            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
-            ! set the orbital shell for nu index
-            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+            ! Find l-shell for mu
+            iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+            ! Find l-shell for nu
+            iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
 
             do iSpin = 1, size(OnsiteAO,dim=3)
 
-              OnsiteAO(nu,mu,iSpin,1) = onSiteElements(iSp2,iSp1,iSpin,species(G1))
+              OnsiteAO(nu,mu,iSpin,1) = onSiteElements(iSh2,iSh1,iSpin,species(iAt1))
 
-              if (iSp1 == iSp2 .and. iSp1 > 1) then
-                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSp2,iSp1,iSpin,species(G1)) &
-                    & / (2.0_dp * iSp1 - 1.0_dp) / 2.0_dp
+              if (iSh1 == iSh2 .and. iSh1 > 1) then
+                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSh2,iSh1,iSpin,species(iAt1)) &
+                    & / (2.0_dp * iSh1 - 1.0_dp) / 2.0_dp
               end if
 
               if (nu /= mu) then
@@ -607,20 +610,20 @@ contains
       do mu = 1, nOrb
         do nu = mu, nOrb
           ! find proper atom index
-          G1 = getAtomIndex(mu)
-          G2 = getAtomIndex(nu)
-          if (G1 == G2) then
+          iAt1 = getAtomIndex(mu)
+          iAt2 = getAtomIndex(nu)
+          if (iAt1 == iAt2) then
 
-            ! set the orbital shell for mu index
-            call findShellOfAO(mu, mu, getAtomIndex, iSquare, iSp1, fac1, fac2)
-            ! set the orbital shell for nu index
-            call findShellOfAO(nu, nu, getAtomIndex, iSquare, iSp2, fac1, fac2)
+            ! Find l-shell for mu
+            iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+            ! Find l-shell for nu
+            iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
 
-            LrOnSiteAO(nu,mu,1) = onSiteElements(iSp2,iSp1,3,species(G1))
+            LrOnSiteAO(nu,mu,1) = onSiteElements(iSh2,iSh1,3,species(iAt1))
 
-            if (iSp1 == iSp2 .and. iSp1 > 1) then
-              LrOnsiteAO(nu,mu,2) = onSiteElements(iSp2,iSp1,3,species(G1)) &
-                  & / (2.0_dp * iSp1 - 1.0_dp) / 2.0_dp
+            if (iSh1 == iSh2 .and. iSh1 > 1) then
+              LrOnsiteAO(nu,mu,2) = onSiteElements(iSh2,iSh1,3,species(iAt1)) &
+                  & / (2.0_dp * iSh1 - 1.0_dp) / 2.0_dp
             end if
 
             if (nu /= mu) then
@@ -5310,7 +5313,7 @@ contains
     integer :: iAtom1, iAtom2, iAtom3, iAtom4, nAtom, k, nAtomPair
     integer :: ist, nstates, nstHalf, mOrb, mu, nu, nOrb, l, sparseSize
     integer :: iS, nSpin, iL, Lmax, id, Ncpu
-    integer :: ii, G1, G2, G3, G4
+    integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
 
     nAtom = size(GammaDeriv,dim=1)
     nAtomPair = nAtom * (nAtom - 1) / 2
@@ -5368,9 +5371,9 @@ contains
 
     ! compute R*T shift with only up-spin part of TderivL due to symmetry
 
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,G1, &
-!$OMP& G2,G3,G4,tmpS,tmpD,tmpGM,tmpPM,tmpQ1,tmpQ2,GammaQderiv, &
-!$OMP& SpinQderiv,mu,nu,iAtom3,iAtom4,tmpV1,tmpG2,tmpG1,tmpS1, &
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,iAtTau1, &
+!$OMP& iAtTau2,iAtGam1,iAtGam2,tmpS,tmpD,tmpGM,tmpPM,tmpQ1,tmpQ2, &
+!$OMP& GammaQderiv,SpinQderiv,mu,nu,iAtom3,iAtom4,tmpV1,tmpG2,tmpG1,tmpS1, &
 !$OMP& tmpCoulomb,ist) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
     do k = 1, nAtomPair
 
@@ -5382,15 +5385,16 @@ contains
 
       call getTwoIndices(nAtom, k, iAtom1, iAtom2, 1)
 
-      G1 = iSquare(iAtom1)
-      G2 = iSquare(iAtom1+1)-1
-      G3 = iSquare(iAtom2)
-      G4 = iSquare(iAtom2+1)-1
+      iAtTau1 = iSquare(iAtom1)
+      iAtTau2 = iSquare(iAtom1+1) - 1
+      iAtGam1 = iSquare(iAtom2)
+      iAtGam2 = iSquare(iAtom2+1) - 1
 
       ! zeroing for temporary S_deriv
       tmpS(:,:,:) = 0.0_dp
       do ii = 1, 3
-        tmpS(1:G2-G1+1,1:G4-G3+1,ii) = Sderiv(G1:G2,G3:G4,ii)
+        tmpS(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii) &
+            & = Sderiv(iAtTau1:iAtTau2,iAtGam1:iAtGam2,ii)
       end do
 
       ! zeroing for temporary density matrix
@@ -5398,18 +5402,19 @@ contains
       ! tmpD has (my_qm) component
       tmpD(:,:,:,:) = 0.0_dp
       do iL = 1, Lmax
-        tmpD(1:G2-G1+1,1:G4-G3+1,1,iL) = rhoSqrL(G1:G2,G3:G4,1,iL)
+        tmpD(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,1,iL) &
+            & = rhoSqrL(iAtTau1:iAtTau2,iAtGam1:iAtGam2,1,iL)
       end do
       ! tmpD has (qm) component
       call qmExpandL(tmpD, Lpaired)
 
       ! zeroing for temporary gamma & spin parts
       tmpGM(:,:,:) = 0.0_dp
-      tmpGM(:,1:G2-G1+1,1) = GammaAO(:,G1:G2)
-      tmpGM(:,1:G4-G3+1,2) = GammaAO(:,G3:G4)
+      tmpGM(:,1:iAtTau2-iAtTau1+1,1) = GammaAO(:,iAtTau1:iAtTau2)
+      tmpGM(:,1:iAtGam2-iAtGam1+1,2) = GammaAO(:,iAtGam1:iAtGam2)
       tmpPM(:,:,:) = 0.0_dp
-      tmpPM(:,1:G2-G1+1,1) = SpinAO(:,G1:G2)
-      tmpPM(:,1:G4-G3+1,2) = SpinAO(:,G3:G4)
+      tmpPM(:,1:iAtTau2-iAtTau1+1,1) = SpinAO(:,iAtTau1:iAtTau2)
+      tmpPM(:,1:iAtGam2-iAtGam1+1,2) = SpinAO(:,iAtGam1:iAtGam2)
 
       ! calculate the charge derivative part
       do iL = 1, Lmax
@@ -5419,9 +5424,9 @@ contains
           ! tmpQ1 & tmpQ2 has (qm) component
           tmpQ1(:,:,:) = 0.0_dp; tmpQ2(:,:,:) = 0.0_dp
           do iS = 1, nSpin
-            ! G3 ~ G4
+            ! iAtGam1 ~ iAtGam2
             tmpQ1(:,1,iS) = sum(tmpS(:,:,ii)*tmpD(:,:,iS,iL),dim=1)
-            ! G1 ~ G2
+            ! iAtTau1 ~ iAtTau2
             tmpQ2(:,1,iS) = sum(tmpS(:,:,ii)*tmpD(:,:,iS,iL),dim=2)
           end do
 
@@ -6199,7 +6204,7 @@ contains
     integer :: iAtom1, iAtom2, k, nAtomSparse, ist, nstates, nstHalf
     integer :: mu, nu, al, be, nOrb, l, nOrbHalf
     integer :: iL, Lmax, id, Ncpu
-    integer :: ii, G1, G2, G3, G4
+    integer :: ii, iAtTau1, iAtTau2, iAtGam1, iAtGam2
 
     nAtomSparse = size(getDenseAtom,dim=1)
     nstates = size(RmatHalfL,dim=3)
@@ -6232,8 +6237,8 @@ contains
     ! compute R*T shift with only up-spin part of TderivL due to symmetry
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2, &
-!$OMP& G1,G2,G3,G4,tmpS,shiftPP1,shiftPP2,shiftIM1,shiftIM2, &
-!$OMP& shiftFM1,shiftFM2,iL,ii,mu,nu,al,be,l,ist) &
+!$OMP& iAtTau1,iAtTau2,iAtGam1,iAtGam2,tmpS,shiftPP1,shiftPP2, &
+!$OMP& shiftIM1,shiftIM2,shiftFM1,shiftFM2,iL,ii,mu,nu,al,be,l,ist) &
 !$OMP& REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
     loopKK: do k = 1, nAtomSparse
 
@@ -6249,15 +6254,16 @@ contains
 
       if (iAtom1 /= iAtom2) then
 
-        G1 = iSquare(iAtom1)
-        G2 = iSquare(iAtom1+1)-1
-        G3 = iSquare(iAtom2)
-        G4 = iSquare(iAtom2+1)-1
+        iAtTau1 = iSquare(iAtom1)
+        iAtTau2 = iSquare(iAtom1+1) - 1
+        iAtGam1 = iSquare(iAtom2)
+        iAtGam2 = iSquare(iAtom2+1) - 1
 
         ! zeroing for temporary Sderiv
         tmpS(:,:,:) = 0.0_dp
         do ii = 1, 3
-          tmpS(1:G2-G1+1,1:G4-G3+1,ii) = Sderiv(G1:G2,G3:G4,ii)
+          tmpS(1:iAtTau2-iAtTau1+1,1:iAtGam2-iAtGam1+1,ii) &
+              & = Sderiv(iAtTau1:iAtTau2,iAtGam1:iAtGam2,ii)
         end do
 
         ! zeroing for temporary shift
@@ -6267,13 +6273,13 @@ contains
         ! a-1
         do iL = 1, Lmax
           shiftPP1(:,:) = 0.0_dp
-          shiftPP1(1:G4-G3+1,:) = deltaRhoSqrL(G3:G4,:,1,iL)
+          shiftPP1(1:iAtGam2-iAtGam1+1,:) = deltaRhoSqrL(iAtGam1:iAtGam2,:,1,iL)
           do ii = 1, 3
             shiftIM1(:,:) = 0.0_dp
             call gemm(shiftIM1, tmpS(:,:,ii), shiftPP1)
-            do mu = G1, G2
+            do mu = iAtTau1, iAtTau2
               do be = 1, nOrb
-                shiftIM1(mu-G1+1,be) = shiftIM1(mu-G1+1,be) * LrGammaAO(mu,be)
+                shiftIM1(mu-iAtTau1+1,be) = shiftIM1(mu-iAtTau1+1,be) * LrGammaAO(mu,be)
               end do
             end do
             call gemm(shiftFM1(:,:,ii,iL), shiftIM1, overSqr)
@@ -6282,14 +6288,14 @@ contains
         ! b-1
         do iL = 1, Lmax
           shiftPP1(:,:) = 0.0_dp
-          shiftPP1(1:G4-G3+1,:) = transpose(SP(:,G3:G4,iL))
+          shiftPP1(1:iAtGam2-iAtGam1+1,:) = transpose(SP(:,iAtGam1:iAtGam2,iL))
           do ii = 1, 3
             shiftIM1(:,:) = 0.0_dp
             call gemm(shiftIM1, tmpS(:,:,ii), shiftPP1)
-            do mu = G1, G2
+            do mu = iAtTau1, iAtTau2
               do nu = 1, nOrb
-                shiftFM1(mu-G1+1,nu,ii,iL) = shiftFM1(mu-G1+1,nu,ii,iL) &
-                    & + shiftIM1(mu-G1+1,nu) * LrGammaAO(mu,nu)
+                shiftFM1(mu-iAtTau1+1,nu,ii,iL) = shiftFM1(mu-iAtTau1+1,nu,ii,iL) &
+                    & + shiftIM1(mu-iAtTau1+1,nu) * LrGammaAO(mu,nu)
               end do
             end do
           end do
@@ -6297,9 +6303,9 @@ contains
         ! c-1
         do iL = 1, Lmax
           shiftPP1(:,:) = 0.0_dp
-          do al = G3, G4
+          do al = iAtGam1, iAtGam2
             do be = 1, nOrb
-              shiftPP1(al-G3+1,be) = deltaRhoSqrL(al,be,1,iL) * LrGammaAO(al,be)
+              shiftPP1(al-iAtGam1+1,be) = deltaRhoSqrL(al,be,1,iL) * LrGammaAO(al,be)
             end do
           end do
           shiftIM1(:,:) = 0.0_dp
@@ -6311,9 +6317,9 @@ contains
         ! d-1
         do iL = 1, Lmax
           shiftIM1(:,:) = 0.0_dp
-          do al = G3, G4
+          do al = iAtGam1, iAtGam2
             do nu = 1, nOrb
-              shiftIM1(al-G3+1,nu) = SP(nu,al,iL) * LrGammaAO(al,nu)
+              shiftIM1(al-iAtGam1+1,nu) = SP(nu,al,iL) * LrGammaAO(al,nu)
             end do
           end do
           do ii = 1, 3
@@ -6325,8 +6331,8 @@ contains
         do iL = 1, Lmax
           shiftIM2(:,:) = 0.0_dp
           do mu = 1, nOrb
-            do be = G1, G2
-              shiftIM2(mu,be-G1+1) = SP(mu,be,iL) * LrGammaAO(mu,be)
+            do be = iAtTau1, iAtTau2
+              shiftIM2(mu,be-iAtTau1+1) = SP(mu,be,iL) * LrGammaAO(mu,be)
             end do
           end do
           do ii = 1, 3
@@ -6336,14 +6342,14 @@ contains
         ! b-2
         do iL = 1, Lmax
           shiftPP2(:,:) = 0.0_dp
-          shiftPP2(:,1:G2-G1+1) = SP(:,G1:G2,iL)
+          shiftPP2(:,1:iAtTau2-iAtTau1+1) = SP(:,iAtTau1:iAtTau2,iL)
           do ii = 1, 3
             shiftIM2(:,:) = 0.0_dp
             call gemm(shiftIM2, shiftPP2, tmpS(:,:,ii))
             do mu = 1, nOrb
-              do nu = G3, G4
-                shiftFM2(mu,nu-G3+1,ii,iL) = shiftFM2(mu,nu-G3+1,ii,iL) &
-                    & + shiftIM2(mu,nu-G3+1) * LrGammaAO(mu,nu)
+              do nu = iAtGam1, iAtGam2
+                shiftFM2(mu,nu-iAtGam1+1,ii,iL) = shiftFM2(mu,nu-iAtGam1+1,ii,iL) &
+                    & + shiftIM2(mu,nu-iAtGam1+1) * LrGammaAO(mu,nu)
               end do
             end do
           end do
@@ -6352,8 +6358,8 @@ contains
         do iL = 1, Lmax
           shiftPP2(:,:) = 0.0_dp
           do al = 1, nOrb
-            do be = G1, G2
-              shiftPP2(al,be-G1+1) = deltaRhoSqrL(al,be,1,iL) * LrGammaAO(al,be)
+            do be = iAtTau1, iAtTau2
+              shiftPP2(al,be-iAtTau1+1) = deltaRhoSqrL(al,be,1,iL) * LrGammaAO(al,be)
             end do
           end do
           shiftIM2(:,:) = 0.0_dp
@@ -6365,13 +6371,13 @@ contains
         ! d-2
         do iL = 1, Lmax
           shiftPP2(:,:) = 0.0_dp
-          shiftPP2(:,1:G2-G1+1) = deltaRhoSqrL(:,G1:G2,1,iL)
+          shiftPP2(:,1:iAtTau2-iAtTau1+1) = deltaRhoSqrL(:,iAtTau1:iAtTau2,1,iL)
           do ii = 1, 3
             shiftIM2(:,:) = 0.0_dp
             call gemm(shiftIM2, shiftPP2, tmpS(:,:,ii))
             do al = 1, nOrb
-              do nu = G3, G4
-                shiftIM2(al,nu-G3+1) = shiftIM2(al,nu-G3+1) * LrGammaAO(al,nu)
+              do nu = iAtGam1, iAtGam2
+                shiftIM2(al,nu-iAtGam1+1) = shiftIM2(al,nu-iAtGam1+1) * LrGammaAO(al,nu)
               end do
             end do
             call gemm(shiftFM2(:,:,ii,iL), overSqr, shiftIM2, alpha=1.0_dp, beta=1.0_dp)
@@ -6385,17 +6391,17 @@ contains
 
           call getTwoIndices(nOrb, l, mu, nu, 2)
 
-          if (mu >= G1 .and. mu <= G2) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM1(mu-G1+1,nu,:,:)
+          if (mu >= iAtTau1 .and. mu <= iAtTau2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM1(mu-iAtTau1+1,nu,:,:)
           end if
-          if (nu >= G1 .and. nu <= G2) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM1(nu-G1+1,mu,:,:)
+          if (nu >= iAtTau1 .and. nu <= iAtTau2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM1(nu-iAtTau1+1,mu,:,:)
           end if
-          if (mu >= G3 .and. mu <= G4) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM2(nu,mu-G3+1,:,:)
+          if (mu >= iAtGam1 .and. mu <= iAtGam2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM2(nu,mu-iAtGam1+1,:,:)
           end if
-          if (nu >= G3 .and. nu <= G4) then
-            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM2(mu,nu-G3+1,:,:)
+          if (nu >= iAtGam1 .and. nu <= iAtGam2) then
+            TderivL(l,:,:,id) = TderivL(l,:,:,id) + shiftFM2(mu,nu-iAtGam1+1,:,:)
           end if
 
         end do loopLL

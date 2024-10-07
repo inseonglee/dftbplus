@@ -369,7 +369,7 @@ module dftbp_reks_reksinterface
     else
 
       ! get REKS parameters used in CP-REKS and gradient equations
-      call getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
+      call getReksParameters_(env, denseDesc, sccCalc, hybridXc, orb, &
           & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
           & eigenvecs, coord, species, over, spinW, onSiteElements, this)
 
@@ -1029,7 +1029,7 @@ module dftbp_reks_reksinterface
 
 
   !> Set several REKS variables used in CP-REKS equations
-  subroutine getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
+  subroutine getReksParameters_(env, denseDesc, sccCalc, hybridXc, orb, &
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
       & eigenvecs, coord, species, over, spinW, onSiteElements, this)
 
@@ -1044,6 +1044,9 @@ module dftbp_reks_reksinterface
 
     !> Range separation contributions
     class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> neighbours to atoms
     type(TNeighbourList), intent(in) :: neighbourList
@@ -1079,7 +1082,7 @@ module dftbp_reks_reksinterface
     type(TReksCalc), intent(inout) :: this
 
     ! get gamma, spinW, gamma deriv, lr-gamma, lr-gamma deriv, on-site constants
-    call getFullLongRangePars(env, sccCalc, hybridXc, coord, species,&
+    call getFullLongRangePars(env, sccCalc, hybridXc, orb, coord, species,&
         & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart,&
         & spinW, onSiteElements, this%getAtomIndex, this%isOnsite, this%isHybridXc,&
         & this%isRS_OnsCorr, this%GammaAO, this%GammaDeriv, this%SpinAO,&

@@ -29,7 +29,6 @@ module dftbp_reks_rekscommon
   public :: qmExpandL, udExpandL
   public :: matAO2MO, matMO2AO
   public :: getSpaceSym
-  public :: findShellOfAO
   public :: assignIndex, assignEpsilon, assignFilling
 
   !> Swap from charge/magnetisation to up/down in REKS
@@ -495,50 +494,6 @@ module dftbp_reks_rekscommon
     end if
 
   end subroutine getSpaceSym
-
-
-  !> Find shell of index alpha with respect to mu (reference)
-  subroutine findShellOfAO(al, mu, getAtomIndex, iSquare, iSpA, facP, facD)
-
-    !> input AO index
-    integer, intent(in) :: al
-
-    !> reference AO index (standard of atom)
-    integer, intent(in) :: mu
-
-    !> get atom index from AO index
-    integer, intent(in) :: getAtomIndex(:)
-
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
-    integer, intent(in) :: iSquare(:)
-
-    !> output shell (s,p,d) for input AO index
-    integer, intent(out) :: iSpA
-
-    !> check whether al is included in p or d orbitals
-    real(dp), intent(out) :: facP, facD
-
-    integer :: iAtM, iAtA, iShA
-
-    ! set the orbital shell for al index w.r.t mu
-    iAtM = getAtomIndex(mu)
-    iAtA = getAtomIndex(al)
-    if (iAtA == iAtM) then
-      iShA = al - iSquare(iAtA) + 1
-      if (iShA == 1) then
-        iSpA = 1
-      else if (iShA > 1 .and. iShA <= 4) then
-        iSpA = 2
-        facP = 1.0_dp
-      else if (iShA > 4 .and. iShA <= 9) then
-        iSpA = 3
-        facD = 1.0_dp
-      end if
-    else
-      iSpA = 0
-    end if
-
-  end subroutine findShellOfAO
 
 
   !> Assign index in terms of dense form from super matrix form
