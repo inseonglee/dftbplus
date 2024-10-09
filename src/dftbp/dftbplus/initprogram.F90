@@ -6750,7 +6750,16 @@ contains
         write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS)/2"
       end if
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      write(stdOut, "(A,':',T30,A)") "SSR(2,2) Calculation", "Yes"
+      if (reks%Efunction == 1) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "PPS"
+      else if (reks%Efunction == 2) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+DSPS)/2"
+      else if (reks%Efunction == 3) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS1+OSS2)/3"
+      else if (reks%Efunction == 4) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS1+OSS2+OSS3+OSS4)/5"
+      end if
     end select
 
     write(stdOut, "(A,':',T30,I14)") "Number of Core Orbitals", reks%Nc

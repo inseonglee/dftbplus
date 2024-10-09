@@ -49,6 +49,7 @@ module dftbp_reks_reksvar
 
     !> Minimized energy functional
     !> In SSR(2,2), 1: PPS, 2: (PPS+OSS)/2
+    !> In SSR(4,4), 1: PPS, 2: (PPS+DSPS)/2, 3: (PPS+OSS1+OSS2)/3, 4: (PPS+OSS1+OSS2+OSS3+OSS4)/5
     integer :: Efunction
 
     !> Decide the energy states in SA-REKS
@@ -670,7 +671,7 @@ module dftbp_reks_reksvar
     case (reksTypes%ssr22)
       call setSSR22conditions(this, nEl)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call setSSR44conditions(this, nEl)
     end select
 
     nOrb = orb%nOrb
@@ -724,7 +725,7 @@ module dftbp_reks_reksvar
     case (reksTypes%ssr22)
       call checkSSR22Requirements(this)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call checkSSR44Requirements(this)
     end select
 
     ! Allocate REKS variables
@@ -1157,15 +1158,16 @@ module dftbp_reks_reksvar
       spinW(:,:,iAt) = this%Tuning(iAt) * spinW(:,:,iAt)
     end do
 
-    ! Set the ordering information between R_mat_L and filling_L
+    ! Set the ordering information between RmatL and fillingL
     if (this%Efunction > 1 .and. this%tForces) then
       select case (this%reksAlg)
       case (reksTypes%noReks)
       case (reksTypes%ssr22)
-        ! R_mat_L has 4 elements and filling_L has 6 elements in (2,2) case
+        ! RmatL has 4 elements and fillingL has 6 elements in (2,2) case
         this%orderRmatL(:) = [1, 2, 1, 2, 3, 4]
       case (reksTypes%ssr44)
-        call error("SSR(4,4) is not implemented yet")
+        ! TODO : RmatL is not used yet, must be corrected
+        call error("Force evaluation in SSR(4,4) is not implemented yet")
       end select
     end if
 
@@ -1209,6 +1211,69 @@ module dftbp_reks_reksvar
       allocate(this%FONs(this%Na,1))
 
     end subroutine setSSR22conditions
+
+    !> Check REKS common requirements
+    subroutine setSSR44conditions(this, nEl)
+
+      !> data type for REKS
+      type(TReksCalc), intent(inout) :: this
+
+      !> nr. of electrons
+      real(dp), intent(in) :: nEl
+
+      this%Nc = int(real(nEl, dp)) / 2 - 2
+      this%Na = 4
+      this%Lmax = 36
+      ! TODO : LmaxR is not used yet, must be corrected
+      this%LmaxR = 4
+      this%Lpaired = 4
+      if (this%Efunction == 1) then
+        ! Only PPS state is minimized; single-state REKS
+        this%SAstates = 1
+        if (.not. this%tAllStates) then
+          ! PPS state
+          this%nstates = 1
+        else
+          call error("IncludeAllStates should be set to No in single-state REKS")
+        end if
+      else if (this%Efunction == 2) then
+        ! (PPS+DSPS)/2 state is minimized; SA-REKS
+        this%SAstates = 2
+        if (.not. this%tAllStates) then
+          ! PPS, DSPS state
+          this%nstates = 2
+        else
+          ! all states
+          this%nstates = 9
+        end if
+      else if (this%Efunction == 3) then
+        ! (PPS+OSS1+OSS2)/3 state is minimized; SA-REKS
+        this%SAstates = 3
+        if (.not. this%tAllStates) then
+          ! PPS, OSS1, OSS2 state
+          this%nstates = 3
+        else
+          ! all states
+          this%nstates = 9
+        end if
+      else if (this%Efunction == 4) then
+        ! (PPS+OSS1+OSS2+OSS3+OSS4)/5 state is minimized; SA-REKS
+        this%SAstates = 5
+        if (.not. this%tAllStates) then
+          ! PPS, OSS1, OSS2, OSS3, OSS4 state
+          this%nstates = 5
+        else
+          ! all states
+          this%nstates = 9
+        end if
+      end if
+      ! Fractional occupation numbers; three types are needed
+      ! (n_a, n_d) & (n_b, n_c)
+      ! (n'_a, n'_d) & (n'_b, n'_c)
+      ! (m'_a, m'_c) & (m'_b, m'_c)
+      allocate(this%FONs(this%Na,3))
+
+    end subroutine setSSR44conditions
 
     !> Check REKS common requirements
     subroutine checkReksRequirements(this)
@@ -1313,6 +1378,26 @@ module dftbp_reks_reksvar
       end if
 
     end subroutine checkSSR22Requirements
+
+    !> Check REKS(4,4) requirements
+    subroutine checkSSR44Requirements(this)
+
+      !> data type for REKS
+      type(TReksCalc), intent(in) :: this
+
+      ! REKS energy requirements
+
+      if (this%rstate > 9 .or. this%rstate < 1) then
+        call error("Wrong TargetState given, please write 1 to 9")
+      else if (this%Lstate > 36 .or. this%Lstate < 0) then
+        call error("Wrong TargetMicrostate given, please write 0 to 36")
+      end if
+
+      if (this%tForces) then
+        call error("Force evaluation in SSR(4,4) is not implemented yet")
+      end if
+
+    end subroutine checkSSR44Requirements
 
   end subroutine REKS_init
 
