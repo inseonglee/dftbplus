@@ -1270,7 +1270,7 @@ module dftbp_reks_reksvar
       ! Fractional occupation numbers; three types are needed
       ! (n_a, n_d) & (n_b, n_c)
       ! (n'_a, n'_d) & (n'_b, n'_c)
-      ! (m'_a, m'_c) & (m'_b, m'_c)
+      ! (m'_a, m'_c) & (m'_b, m'_d)
       allocate(this%FONs(this%Na,3))
 
     end subroutine setSSR44conditions

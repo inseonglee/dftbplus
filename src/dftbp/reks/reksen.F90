@@ -52,7 +52,7 @@ module dftbp_reks_reksen
     case (reksTypes%ssr22)
       call getFillingL22_(this%Nc, this%fillingL)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call getFillingL44_(this%Nc, this%fillingL)
     end select
 
   end subroutine constructMicrostates
@@ -480,26 +480,158 @@ module dftbp_reks_reksen
     end do
 
     ! Filling of active orbitals for REKS(2,2) case
-    ! 1 = a: up + down
-    fillingL(Nc+1,1,1) = 1.0_dp
-    fillingL(Nc+1,2,1) = 1.0_dp
-    ! 2 = b: up + down
-    fillingL(Nc+2,1,2) = 1.0_dp
-    fillingL(Nc+2,2,2) = 1.0_dp
-    ! 3 = a: up, b: down
-    fillingL(Nc+1,1,3) = 1.0_dp
-    fillingL(Nc+2,2,3) = 1.0_dp
-    ! 4 = a: down, b: up
-    fillingL(Nc+2,1,4) = 1.0_dp
-    fillingL(Nc+1,2,4) = 1.0_dp
-    ! 5 = a: up, b: up
-    fillingL(Nc+1,1,5) = 1.0_dp
-    fillingL(Nc+2,1,5) = 1.0_dp
-    ! 6 = a: down, b: down
-    fillingL(Nc+1,2,6) = 1.0_dp
-    fillingL(Nc+2,2,6) = 1.0_dp
+    ! 1 = aa'
+    fillingL(Nc+1,1,1) = 1.0_dp; fillingL(Nc+1,2,1) = 1.0_dp
+    ! 2 = bb'
+    fillingL(Nc+2,1,2) = 1.0_dp; fillingL(Nc+2,2,2) = 1.0_dp
+    ! 3 = ab'
+    fillingL(Nc+1,1,3) = 1.0_dp; fillingL(Nc+2,2,3) = 1.0_dp
+    ! 4 = a'b
+    fillingL(Nc+2,1,4) = 1.0_dp; fillingL(Nc+1,2,4) = 1.0_dp
+    ! 5 = ab
+    fillingL(Nc+1,1,5) = 1.0_dp; fillingL(Nc+2,1,5) = 1.0_dp
+    ! 6 = a'b'
+    fillingL(Nc+1,2,6) = 1.0_dp; fillingL(Nc+2,2,6) = 1.0_dp
 
   end subroutine getFillingL22_
+
+
+  !> Calculate filling of each microstate in REKS(4,4)
+  subroutine getFillingL44_(Nc, fillingL)
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Filling for each microstate
+    real(dp), intent(out) :: fillingL(:,:,:)
+
+    integer :: iL, iSpin, ii, nSpin, Lmax
+
+    nSpin = size(fillingL,dim=2)
+    Lmax = size(fillingL,dim=3)
+
+    fillingL(:,:,:) = 0.0_dp
+
+    ! Filling of core orbitals
+    do iL = 1, Lmax
+      do iSpin = 1, nSpin
+        do ii = 1, Nc
+          fillingL(ii,iSpin,iL) = 1.0_dp
+        end do
+      end do
+    end do
+
+    ! Filling of active orbitals for REKS(4,4) case
+    ! 1 = aa'bb'
+    fillingL(Nc+1,1,1) = 1.0_dp; fillingL(Nc+1,2,1) = 1.0_dp
+    fillingL(Nc+2,1,1) = 1.0_dp; fillingL(Nc+2,2,1) = 1.0_dp
+    ! 2 = aa'cc' 
+    fillingL(Nc+1,1,2) = 1.0_dp; fillingL(Nc+1,2,2) = 1.0_dp
+    fillingL(Nc+3,1,2) = 1.0_dp; fillingL(Nc+3,2,2) = 1.0_dp
+    ! 3 = bb'dd'
+    fillingL(Nc+2,1,3) = 1.0_dp; fillingL(Nc+2,2,3) = 1.0_dp
+    fillingL(Nc+4,1,3) = 1.0_dp; fillingL(Nc+4,2,3) = 1.0_dp
+    ! 4 = cc'dd'
+    fillingL(Nc+3,1,4) = 1.0_dp; fillingL(Nc+3,2,4) = 1.0_dp
+    fillingL(Nc+4,1,4) = 1.0_dp; fillingL(Nc+4,2,4) = 1.0_dp
+    ! 5 = abb'd'
+    fillingL(Nc+1,1,5) = 1.0_dp; fillingL(Nc+2,1,5) = 1.0_dp
+    fillingL(Nc+2,2,5) = 1.0_dp; fillingL(Nc+4,2,5) = 1.0_dp
+    ! 6 = a'bb'd
+    fillingL(Nc+1,2,6) = 1.0_dp; fillingL(Nc+2,1,6) = 1.0_dp
+    fillingL(Nc+2,2,6) = 1.0_dp; fillingL(Nc+4,1,6) = 1.0_dp
+    ! 7 = abb'd
+    fillingL(Nc+1,1,7) = 1.0_dp; fillingL(Nc+2,1,7) = 1.0_dp
+    fillingL(Nc+2,2,7) = 1.0_dp; fillingL(Nc+4,1,7) = 1.0_dp
+    ! 8 = a'bb'd'
+    fillingL(Nc+1,2,8) = 1.0_dp; fillingL(Nc+2,1,8) = 1.0_dp
+    fillingL(Nc+2,2,8) = 1.0_dp; fillingL(Nc+4,2,8) = 1.0_dp
+    ! 9 = aa'bc'
+    fillingL(Nc+1,1,9) = 1.0_dp; fillingL(Nc+1,2,9) = 1.0_dp
+    fillingL(Nc+2,1,9) = 1.0_dp; fillingL(Nc+3,2,9) = 1.0_dp
+    ! 10 = aa'b'c
+    fillingL(Nc+1,1,10) = 1.0_dp; fillingL(Nc+1,2,10) = 1.0_dp
+    fillingL(Nc+2,2,10) = 1.0_dp; fillingL(Nc+3,1,10) = 1.0_dp
+    ! 11 = aa'bc
+    fillingL(Nc+1,1,11) = 1.0_dp; fillingL(Nc+1,2,11) = 1.0_dp
+    fillingL(Nc+2,1,11) = 1.0_dp; fillingL(Nc+3,1,11) = 1.0_dp
+    ! 12 = aa'b'c'
+    fillingL(Nc+1,1,12) = 1.0_dp; fillingL(Nc+1,2,12) = 1.0_dp
+    fillingL(Nc+2,2,12) = 1.0_dp; fillingL(Nc+3,2,12) = 1.0_dp
+    ! 13 = bc'dd'
+    fillingL(Nc+2,1,13) = 1.0_dp; fillingL(Nc+3,2,13) = 1.0_dp
+    fillingL(Nc+4,1,13) = 1.0_dp; fillingL(Nc+4,2,13) = 1.0_dp
+    ! 14 = b'cdd'
+    fillingL(Nc+2,2,14) = 1.0_dp; fillingL(Nc+3,1,14) = 1.0_dp
+    fillingL(Nc+4,1,14) = 1.0_dp; fillingL(Nc+4,2,14) = 1.0_dp
+    ! 15 = acc'd'
+    fillingL(Nc+1,1,15) = 1.0_dp; fillingL(Nc+3,1,15) = 1.0_dp
+    fillingL(Nc+3,2,15) = 1.0_dp; fillingL(Nc+4,2,15) = 1.0_dp
+    ! 16 = a'cc'd
+    fillingL(Nc+1,2,16) = 1.0_dp; fillingL(Nc+3,1,16) = 1.0_dp
+    fillingL(Nc+3,2,16) = 1.0_dp; fillingL(Nc+4,1,16) = 1.0_dp
+    ! 17 = aa'bd'
+    fillingL(Nc+1,1,17) = 1.0_dp; fillingL(Nc+1,2,17) = 1.0_dp
+    fillingL(Nc+2,1,17) = 1.0_dp; fillingL(Nc+4,2,17) = 1.0_dp
+    ! 18 = aa'b'd
+    fillingL(Nc+1,1,18) = 1.0_dp; fillingL(Nc+1,2,18) = 1.0_dp
+    fillingL(Nc+2,2,18) = 1.0_dp; fillingL(Nc+4,1,18) = 1.0_dp
+    ! 19 = aa'bd
+    fillingL(Nc+1,1,19) = 1.0_dp; fillingL(Nc+1,2,19) = 1.0_dp
+    fillingL(Nc+2,1,19) = 1.0_dp; fillingL(Nc+4,1,19) = 1.0_dp
+    ! 20 = aa'b'd'
+    fillingL(Nc+1,1,20) = 1.0_dp; fillingL(Nc+1,2,20) = 1.0_dp
+    fillingL(Nc+2,2,20) = 1.0_dp; fillingL(Nc+4,2,20) = 1.0_dp
+    ! 21 = abb'c'
+    fillingL(Nc+1,1,21) = 1.0_dp; fillingL(Nc+2,1,21) = 1.0_dp
+    fillingL(Nc+2,2,21) = 1.0_dp; fillingL(Nc+3,2,21) = 1.0_dp
+    ! 22 = a'bb'c
+    fillingL(Nc+1,2,22) = 1.0_dp; fillingL(Nc+2,1,22) = 1.0_dp
+    fillingL(Nc+2,2,22) = 1.0_dp; fillingL(Nc+3,1,22) = 1.0_dp
+    ! 23 = abb'c
+    fillingL(Nc+1,1,23) = 1.0_dp; fillingL(Nc+2,1,23) = 1.0_dp
+    fillingL(Nc+2,2,23) = 1.0_dp; fillingL(Nc+3,1,23) = 1.0_dp
+    ! 24 = a'bb'c'
+    fillingL(Nc+1,2,24) = 1.0_dp; fillingL(Nc+2,1,24) = 1.0_dp
+    fillingL(Nc+2,2,24) = 1.0_dp; fillingL(Nc+3,2,24) = 1.0_dp
+    ! 25 = bcc'd'
+    fillingL(Nc+2,1,25) = 1.0_dp; fillingL(Nc+3,1,25) = 1.0_dp
+    fillingL(Nc+3,2,25) = 1.0_dp; fillingL(Nc+4,2,25) = 1.0_dp
+    ! 26 = b'cc'd
+    fillingL(Nc+2,2,26) = 1.0_dp; fillingL(Nc+3,1,26) = 1.0_dp
+    fillingL(Nc+3,2,26) = 1.0_dp; fillingL(Nc+4,1,26) = 1.0_dp
+    ! 27 = ac'dd'
+    fillingL(Nc+1,1,27) = 1.0_dp; fillingL(Nc+3,2,27) = 1.0_dp
+    fillingL(Nc+4,1,27) = 1.0_dp; fillingL(Nc+4,2,27) = 1.0_dp
+    ! 28 = a'cdd'
+    fillingL(Nc+1,2,28) = 1.0_dp; fillingL(Nc+3,1,28) = 1.0_dp
+    fillingL(Nc+4,1,28) = 1.0_dp; fillingL(Nc+4,2,28) = 1.0_dp
+    ! 29 = abc'd'
+    fillingL(Nc+1,1,29) = 1.0_dp; fillingL(Nc+2,1,29) = 1.0_dp
+    fillingL(Nc+3,2,29) = 1.0_dp; fillingL(Nc+4,2,29) = 1.0_dp
+    ! 30 = a'b'cd
+    fillingL(Nc+1,2,30) = 1.0_dp; fillingL(Nc+2,2,30) = 1.0_dp
+    fillingL(Nc+3,1,30) = 1.0_dp; fillingL(Nc+4,1,30) = 1.0_dp
+    ! 31 = ab'cd'
+    fillingL(Nc+1,1,31) = 1.0_dp; fillingL(Nc+2,2,31) = 1.0_dp
+    fillingL(Nc+3,1,31) = 1.0_dp; fillingL(Nc+4,2,31) = 1.0_dp
+    ! 32 = a'bc'd
+    fillingL(Nc+1,2,32) = 1.0_dp; fillingL(Nc+2,1,32) = 1.0_dp
+    fillingL(Nc+3,2,32) = 1.0_dp; fillingL(Nc+4,1,32) = 1.0_dp
+    ! 33 = ab'c'd
+    fillingL(Nc+1,1,33) = 1.0_dp; fillingL(Nc+2,2,33) = 1.0_dp
+    fillingL(Nc+3,2,33) = 1.0_dp; fillingL(Nc+4,1,33) = 1.0_dp
+    ! 34 = a'bcd'
+    fillingL(Nc+1,2,34) = 1.0_dp; fillingL(Nc+2,1,34) = 1.0_dp
+    fillingL(Nc+3,1,34) = 1.0_dp; fillingL(Nc+4,2,34) = 1.0_dp
+    ! 35 = abcd
+    fillingL(Nc+1,1,35) = 1.0_dp; fillingL(Nc+2,1,35) = 1.0_dp
+    fillingL(Nc+3,1,35) = 1.0_dp; fillingL(Nc+4,1,35) = 1.0_dp
+    ! 36 = a'b'c'd'
+    fillingL(Nc+1,2,36) = 1.0_dp; fillingL(Nc+2,2,36) = 1.0_dp
+    fillingL(Nc+3,2,36) = 1.0_dp; fillingL(Nc+4,2,36) = 1.0_dp
+
+  end subroutine getFillingL44_
 
 
   !> Make (2e,2o) weights, C_L used in SA-REKS

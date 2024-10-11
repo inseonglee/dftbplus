@@ -6750,7 +6750,7 @@ contains
         write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS)/2"
       end if
     case (reksTypes%ssr44)
-      write(stdOut, "(A,':',T30,A)") "SSR(2,2) Calculation", "Yes"
+      write(stdOut, "(A,':',T30,A)") "SSR(4,4) Calculation", "Yes"
       if (reks%Efunction == 1) then
         write(stdOut, "(A,':',T30,A)") "Energy Functional", "PPS"
       else if (reks%Efunction == 2) then
