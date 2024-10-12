@@ -24,6 +24,7 @@ module dftbp_reks_rekscommon
 
   private
   public :: checkGammaPoint
+  public :: getFactor
   public :: getTwoIndices
   public :: qm2udL, ud2qmL
   public :: qmExpandL, udExpandL
@@ -155,6 +156,24 @@ module dftbp_reks_rekscommon
     end do
 
   end subroutine checkGammaPoint
+
+
+  !> Calculate factor from n_a and delta for certain active orbital set
+  function getFactor(n_a, n_b, delta) result(factor)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: n_a, n_b
+
+    !> Smoothing factor used in FON optimization
+    real(dp), intent(in) :: delta
+
+    !> factor of n_a and n_b
+    real(dp) :: factor
+
+    factor = -0.5_dp*(n_a*n_b)**&
+        & (1.0_dp-0.5_dp*(n_a*n_b+delta)/(1.0_dp+delta))
+
+  end function getFactor
 
 
   !> Calculate two indices from single index with size of index

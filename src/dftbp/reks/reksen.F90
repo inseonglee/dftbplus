@@ -25,7 +25,7 @@ module dftbp_reks_reksen
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_eigensolver, only : heev
   use dftbp_math_matrixops, only : adjointLowerTriangle
-  use dftbp_reks_rekscommon, only : getTwoIndices, matAO2MO
+  use dftbp_reks_rekscommon, only : getFactor, getTwoIndices, matAO2MO
   use dftbp_reks_reksio, only : printReksSSRInfo
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
@@ -1302,24 +1302,6 @@ module dftbp_reks_reksen
     end if
 
   end subroutine getStateCoup22_
-
-
-  !> Calculate factor from n_a, n_b, and delta for certain active orbital set
-  function getFactor(n_a, n_b, delta) result(factor)
-
-    !> Fractional occupation numbers of active orbitals
-    real(dp), intent(in) :: n_a, n_b
-
-    !> Smoothing factor used in FON optimization
-    real(dp), intent(in) :: delta
-
-    !> factor of n_a and n_b
-    real(dp) :: factor
-
-    factor = -0.5_dp*(n_a*n_b)**&
-        & (1.0_dp-0.5_dp*(n_a*n_b+delta)/(1.0_dp+delta))
-
-  end function getFactor
 
 
 end module dftbp_reks_reksen
