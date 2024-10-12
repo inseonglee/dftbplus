@@ -42,7 +42,9 @@ module dftbp_reks_reksfon
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
-    real(dp) :: x1, x2
+    real(dp) :: enLtot(6)
+    real(dp) :: x1, x2, tmp_hess
+    logical :: optFON1, optFON2, optFON3
 
     select case (this%reksAlg)
     case (reksTypes%noReks)
@@ -55,12 +57,72 @@ module dftbp_reks_reksfon
 
     case (reksTypes%ssr44)
 
-      call getFONs44_(x1, x2, this%enLtot, this%delta, this%FonMaxIter, this%Plevel)
-      ! FONs(1,1) = n_a, FONs(2,1) = n_b, FONs(3,1) = n_c, FONs(4,1) = n_d
-      this%FONs(1,1) = 2.0_dp * x1
-      this%FONs(2,1) = 2.0_dp * x2
-      this%FONs(3,1) = 2.0_dp - this%FONs(2,1)
-      this%FONs(4,1) = 2.0_dp - this%FONs(1,1)
+      optFON1 = .true.
+      optFON2 = .false.
+      optFON3 = .false.
+
+      if (this%Efunction == 3) then
+        optFON2 = .true.
+      else if (this%Efunction == 4) then
+        optFON2 = .true.
+        optFON3 = .true.
+      end if
+
+      if (optFON1) then
+
+        ! For PPS state
+        call getFONs44_(x1, x2, this%enLtot, this%delta, this%FonMaxIter, this%Plevel)
+        ! FONs(1,1) = n_a, FONs(2,1) = n_b, FONs(3,1) = n_c, FONs(4,1) = n_d
+        this%FONs(1,1) = 2.0_dp * x1
+        this%FONs(2,1) = 2.0_dp * x2
+        this%FONs(3,1) = 2.0_dp - this%FONs(2,1)
+        this%FONs(4,1) = 2.0_dp - this%FONs(1,1)
+
+      end if
+
+      if (optFON2) then
+
+        ! For OSS1 state
+        enLtot(1) = this%enLtot(9); enLtot(2) = this%enLtot(13)
+        enLtot(3) = this%enLtot(5); enLtot(4) = this%enLtot(6)
+        enLtot(5) = this%enLtot(7); enLtot(6) = this%enLtot(8)
+        ! FONs(1,2) = n'_a, FONs(4,2) = n'_d
+        call getFONs22_(x1, tmp_hess, enLtot, this%delta, this%FonMaxIter, this%Plevel)
+        this%FONs(1,2) = 2.0_dp * x1
+        this%FONs(4,2) = 2.0_dp - this%FONs(1,2)
+
+        ! For OSS2 state
+        enLtot(1) = this%enLtot(5); enLtot(2) = this%enLtot(15)
+        enLtot(3) = this%enLtot(9); enLtot(4) = this%enLtot(10)
+        enLtot(5) = this%enLtot(11); enLtot(6) = this%enLtot(12)
+        ! FONs(2,2) = n'_b, FONs(3,2) = n'_c
+        call getFONs22_(x2, tmp_hess, enLtot, this%delta, this%FonMaxIter, this%Plevel)
+        this%FONs(2,2) = 2.0_dp * x2
+        this%FONs(3,2) = 2.0_dp - this%FONs(2,2)
+
+      end if
+
+      if (optFON3) then
+
+        ! For OSS3 state
+        enLtot(1) = this%enLtot(17); enLtot(2) = this%enLtot(25)
+        enLtot(3) = this%enLtot(21); enLtot(4) = this%enLtot(22)
+        enLtot(5) = this%enLtot(23); enLtot(6) = this%enLtot(24)
+        ! FONs(1,3) = m'_a, FONs(3,3) = m'_c
+        call getFONs22_(x1, tmp_hess, enLtot, this%delta, this%FonMaxIter, this%Plevel)
+        this%FONs(1,3) = 2.0_dp * x1
+        this%FONs(3,3) = 2.0_dp - this%FONs(1,3)
+
+        ! For OSS4 state
+        enLtot(1) = this%enLtot(21); enLtot(2) = this%enLtot(27)
+        enLtot(3) = this%enLtot(17); enLtot(4) = this%enLtot(18)
+        enLtot(5) = this%enLtot(19); enLtot(6) = this%enLtot(20)
+        ! FONs(2,3) = m'_b, FONs(4,3) = m'_d
+        call getFONs22_(x2, tmp_hess, enLtot, this%delta, this%FonMaxIter, this%Plevel)
+        this%FONs(2,3) = 2.0_dp * x2
+        this%FONs(4,3) = 2.0_dp - this%FONs(2,3)
+
+      end if
 
     end select
 
@@ -288,6 +350,7 @@ module dftbp_reks_reksfon
           eps(2) = -eps(2)
         end if
       else
+        ! General case
         det = hess(1,1) * hess(2,2) - hess(1,2)**2
         eps(1) = -grad(1) * hess_inv(1,1) - grad(2) * hess_inv(1,2)
         eps(2) = -grad(1) * hess_inv(2,1) - grad(2) * hess_inv(2,2)
@@ -379,7 +442,7 @@ module dftbp_reks_reksfon
     ! Decide y = 4*x*(1-x) where x = n/2
     y = 4.0_dp * x * (1.0_dp - x)
     ! TODO : Is this setting helpful for convergence?
-!    if (x * (1.0_dp-x) .LT. ConvergeLimit) y = 4.0E-10_dp
+!    if (x * (1.0_dp-x) < 1.0E-10_dp) y = 4.0E-10_dp
 
     fac1 = 2.0_dp * (1.0_dp - 2.0_dp * x) / (1.0_dp + delta)
     fac2 = -0.5_dp * (y + delta) / (1.0_dp + delta)
@@ -405,7 +468,7 @@ module dftbp_reks_reksfon
     ! Decide y = 4*x*(1-x) where x = n/2
     y = 4.0_dp * x * (1.0_dp - x)
     ! TODO : Is this setting helpful for convergence?
-!    if (x * (1.0_dp-x) .LT. ConvergeLimit) y = 4.0E-10_dp
+!    if (x * (1.0_dp-x) < 1.0E-10_dp) y = 4.0E-10_dp
 
     fac1 = 4.0_dp / (1.0_dp + delta)**2
     fac2 = -1.0_dp * (2.0_dp + 3.0_dp * delta + y) / (2.0_dp + 2.0_dp * delta)
