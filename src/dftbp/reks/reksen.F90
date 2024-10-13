@@ -113,7 +113,7 @@ module dftbp_reks_reksen
     case (reksTypes%ssr22)
       call getFilling22_(filling, this%SAweight, this%FONs, this%Efunction, this%Nc)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call getFilling44_(filling, this%SAweight, this%FONs, this%Efunction, this%Nc)
     end select
 
   end subroutine getFilling
@@ -1062,17 +1062,84 @@ module dftbp_reks_reksen
     do ii = 1, Nc
       filling(ii) = 2.0_dp
     end do
+
     if (Efunction == 1) then
       ! REKS charge
       filling(Nc+1) = n_a
       filling(Nc+2) = n_b
     else if (Efunction == 2) then
-      ! SA-REKS charge
+      ! 2SA-REKS charge
       filling(Nc+1) = n_a*SAweight(1) + SAweight(2)
       filling(Nc+2) = n_b*SAweight(1) + SAweight(2)
     end if
 
   end subroutine getFilling22_
+
+
+  !> Calculate filling for minimzed state with optimized FONs in REKS(4,4)
+  subroutine getFilling44_(filling, SAweight, FONs, Efunction, Nc)
+
+    !> occupations (level)
+    real(dp), intent(out) :: filling(:)
+
+    !> Weights used in state-averaging
+    real(dp), intent(in) :: SAweight(:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    real(dp) :: n_a, n_b, n_c, n_d
+    real(dp) :: np_a, np_b, np_c, np_d
+    real(dp) :: mp_a, mp_b, mp_c, mp_d
+    real(dp) :: fa, fb, fc, fd
+    integer :: ii
+
+    n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
+    np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
+    mp_a = FONs(1,3); mp_b = FONs(2,3); mp_c = FONs(3,3); mp_d = FONs(4,3)
+
+    filling(:) = 0.0_dp
+    do ii = 1, Nc
+      filling(ii) = 2.0_dp
+    end do
+
+    if (Efunction == 1) then
+      ! REKS charge
+      filling(Nc+1) = n_a
+      filling(Nc+2) = n_b
+      filling(Nc+3) = n_c
+      filling(Nc+4) = n_d
+    else if (Efunction == 2) then
+      ! 2SA-REKS charge
+      filling(Nc+1) = n_a*SAweight(1) + SAweight(2)
+      filling(Nc+2) = n_b*SAweight(1) + SAweight(2)
+      filling(Nc+3) = n_c*SAweight(1) + SAweight(2)
+      filling(Nc+4) = n_d*SAweight(1) + SAweight(2)
+    else if (Efunction == 3) then
+      ! 3SA-REKS charge
+      filling(Nc+1) = n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3)
+      filling(Nc+2) = n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3)
+      filling(Nc+3) = n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3)
+      filling(Nc+4) = n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3)
+    else if (Efunction == 4) then
+      ! 5SA-REKS charge
+      filling(Nc+1) = n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3) &
+          &+ mp_a*SAweight(4) + SAweight(5)
+      filling(Nc+2) = n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3) &
+          &+ SAweight(4) + mp_b*SAweight(5)
+      filling(Nc+3) = n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3) &
+          &+ mp_c*SAweight(4) + SAweight(5)
+      filling(Nc+4) = n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
+          &+ SAweight(4) + mp_d*SAweight(5)
+    end if
+
+  end subroutine getFilling44_
 
 
   !> Calculate Fc and Fa from Hamiltonian of each microstate
