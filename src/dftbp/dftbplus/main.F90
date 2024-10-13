@@ -8400,7 +8400,7 @@ contains
     call activeOrbSwap(reks, eigvecs(:,:,1))
     call getFilling(reks, filling(:,1,1))
 
-    call calcSaReksEnergy(reks, energy)
+    call calcSaReksEnergy(reks, energy, tConverged)
 
     if (reks%Plevel >= 2) then
       call printSaReksEnergy(reks)

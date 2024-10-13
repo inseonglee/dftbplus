@@ -120,13 +120,16 @@ module dftbp_reks_reksen
 
 
   !> Calculate the energy of SA-REKS states and averaged state
-  subroutine calcSaReksEnergy(this, energy)
+  subroutine calcSaReksEnergy(this, energy, tConverged)
 
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
     !> Energy terms in the system
     type(TEnergies), intent(inout) :: energy
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
 
     integer :: ist
 
@@ -165,12 +168,14 @@ module dftbp_reks_reksen
       call error("Wrong energy contribution for target SA-REKS state")
     end if
 
-    ! In this step Eavg becomes the energy of averaged state
-    ! From this energy we can check the variational principle
-    energy%Eavg = 0.0_dp
-    do ist = 1, this%SAstates
-      energy%Eavg = energy%Eavg + this%SAweight(ist) * this%energy(ist)
-    end do
+    if (.not. tConverged) then
+      ! In this step Eavg becomes the energy of averaged state
+      ! From this energy we can check the variational principle
+      energy%Eavg = 0.0_dp
+      do ist = 1, this%SAstates
+        energy%Eavg = energy%Eavg + this%SAweight(ist) * this%energy(ist)
+      end do
+    end if
 
   end subroutine calcSaReksEnergy
 
