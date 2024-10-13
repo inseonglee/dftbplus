@@ -93,7 +93,7 @@ module dftbp_reks_reksen
     case (reksTypes%ssr22)
       call MOswap22_(eigenvecs, this%SAweight, this%FONs, this%Efunction, this%Nc)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call MOswap44_(eigenvecs, this%SAweight, this%FONs, this%Efunction, this%Nc)
     end select
 
   end subroutine activeOrbSwap
@@ -935,7 +935,7 @@ module dftbp_reks_reksen
       fa = n_a * 0.5_dp
       fb = n_b * 0.5_dp
     else if (Efunction == 2) then
-      ! SA-REKS charge
+      ! 2SA-REKS charge
       fa = (n_a*SAweight(1) + SAweight(2)) * 0.5_dp
       fb = (n_b*SAweight(1) + SAweight(2)) * 0.5_dp
     end if
@@ -949,6 +949,89 @@ module dftbp_reks_reksen
     end if
 
   end subroutine MOswap22_
+
+
+  !> Swap active orbitals when fa < fd or fb < fc in REKS(4,4) case
+  subroutine MOswap44_(eigenvecs, SAweight, FONs, Efunction, Nc)
+
+    !> eigenvectors
+    real(dp), intent(inout) :: eigenvecs(:,:)
+
+    !> Weights used in state-averaging
+    real(dp), intent(in) :: SAweight(:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    real(dp), allocatable :: tmpMO(:)
+
+    real(dp) :: n_a, n_b, n_c, n_d
+    real(dp) :: np_a, np_b, np_c, np_d
+    real(dp) :: mp_a, mp_b, mp_c, mp_d
+    real(dp) :: fa, fb, fc, fd
+    integer :: nOrb
+
+    nOrb = size(eigenvecs,dim=1)
+
+    n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
+    np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
+    mp_a = FONs(1,3); mp_b = FONs(2,3); mp_c = FONs(3,3); mp_d = FONs(4,3)
+
+    allocate(tmpMO(nOrb))
+
+    if (Efunction == 1) then
+      ! REKS charge
+      fa = n_a * 0.5_dp
+      fb = n_b * 0.5_dp
+      fc = n_c * 0.5_dp
+      fd = n_d * 0.5_dp
+    else if (Efunction == 2) then
+      ! 2SA-REKS charge
+      fa = (n_a*SAweight(1) + SAweight(2)) * 0.5_dp
+      fb = (n_b*SAweight(1) + SAweight(2)) * 0.5_dp
+      fc = (n_c*SAweight(1) + SAweight(2)) * 0.5_dp
+      fd = (n_d*SAweight(1) + SAweight(2)) * 0.5_dp
+    else if (Efunction == 3) then
+      ! 3SA-REKS charge
+      fa = (n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3)) * 0.5_dp
+      fb = (n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3)) * 0.5_dp
+      fc = (n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3)) * 0.5_dp
+      fd = (n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3)) * 0.5_dp
+    else if (Efunction == 4) then
+      ! 5SA-REKS charge
+      fa = (n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3) &
+          &+ mp_a*SAweight(4) + SAweight(5)) * 0.5_dp
+      fb = (n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3) &
+          &+ SAweight(4) + mp_b*SAweight(5)) * 0.5_dp
+      fc = (n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3) &
+          &+ mp_c*SAweight(4) + SAweight(5)) * 0.5_dp
+      fd = (n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
+          &+ SAweight(5) + mp_d*SAweight(5)) * 0.5_dp
+    end if
+
+    if (fa < fd) then
+      write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fa = ", fa, &
+          & ", MO swap between a(", Nc+1, ") and d(", Nc+4, ") occurs"
+      tmpMO(:) = eigenvecs(:,Nc+1)
+      eigenvecs(:,Nc+1) = eigenvecs(:,Nc+4)
+      eigenvecs(:,Nc+4) = tmpMO
+    end if
+
+    if (fb < fc) then
+      write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fb = ", fb, &
+          & ", MO swap between b(", Nc+2, ") and c(", Nc+3, ") occurs"
+      tmpMO(:) = eigenvecs(:,Nc+2)
+      eigenvecs(:,Nc+2) = eigenvecs(:,Nc+3)
+      eigenvecs(:,Nc+3) = tmpMO
+    end if
+
+  end subroutine MOswap44_
 
 
   !> Calculate filling for minimzed state with optimized FONs in REKS(2,2)
