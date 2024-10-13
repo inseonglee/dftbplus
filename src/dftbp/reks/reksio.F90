@@ -117,7 +117,8 @@ module dftbp_reks_reksio
       call printReksSAInfo22_(Eavg, this%enLtot, this%energy, this%FONs, this%Efunction,&
           & this%Plevel)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call printReksSAInfo44_(Eavg, this%enLtot, this%energy, this%FONs, this%Efunction,&
+          & this%Plevel, this%tAllStates)
     end select
 
   end subroutine printReksSAInfo
@@ -144,7 +145,8 @@ module dftbp_reks_reksio
       call printReksSSRInfo22_(Wab, tmpEn, StateCoup, this%energy, this%eigvecsSSR, &
           & this%Na, this%tAllStates, this%tSSR)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call printReksSSRInfo44_(Wab, tmpEn, StateCoup, this%energy, this%eigvecsSSR, &
+          & this%Efunction, this%Na, this%tAllStates, this%tSSR)
     end select
 
   end subroutine printReksSSRInfo
@@ -525,6 +527,148 @@ module dftbp_reks_reksio
   end subroutine printReksSAInfo22_
 
 
+  !> print SA-REKS(4,4) result in standard output
+  subroutine printReksSAInfo44_(Eavg, enLtot, energy, FONs, Efunction, Plevel, tAllStates)
+
+    !> Total energy for averaged state in REKS
+    real(dp), intent(in) :: Eavg
+
+    !> total energy for each microstate
+    real(dp), intent(in) :: enLtot(:)
+
+    !> energy of states
+    real(dp), intent(in) :: energy(:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Print level in standard output file
+    integer, intent(in) :: Plevel
+
+    !> Decide the energy states in SA-REKS
+    logical, intent(in) :: tAllStates
+
+    real(dp) :: n_a, n_b, n_c, n_d
+    real(dp) :: np_a, np_b, np_c, np_d
+    real(dp) :: mp_a, mp_b, mp_c, mp_d
+    integer :: iL, Lmax
+    integer :: indPPS, indOSS1, indOSS2
+    integer :: indOSS3, indOSS4, indDOSS
+    integer :: indDSPS, indDES1, indDES2
+    character(len=8) :: strTmp
+
+    Lmax = size(enLtot,dim=1)
+
+    ! Reset the indices for SA-REKS(4,4) states
+    indPPS = 0; indOSS1 = 0; indOSS2 = 0
+    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
+    indDSPS = 0; indDES1 = 0; indDES2 = 0
+
+    if (tAllStates) then
+      indPPS = 1; indOSS1 = 2; indOSS2 = 3
+      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+      indDSPS = 7; indDES1 = 8; indDES2 = 9
+    else
+      indPPS = 1
+      if (Efunction == 2) then
+        indDSPS = 2
+      else if (Efunction == 3 .or. Efunction == 4) then
+        indOSS1 = 2; indOSS2 = 3
+        if (Efunction == 4) then
+          indOSS3 = 4; indOSS4 = 5
+        end if
+      end if
+    end if
+
+    n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
+    np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
+    mp_a = FONs(1,3); mp_b = FONs(2,3); mp_c = FONs(3,3); mp_d = FONs(4,3)
+
+    write(stdOut,*) " "
+    write(stdOut, "(A)") repeat("-", 70)
+
+    if (Efunction == 1) then
+
+      write(stdOut,'(A25,2x,F15.8)') " Final REKS(4,4) energy:", Eavg
+      write(stdOut,*) " "
+      write(stdOut,'(A66)') " State     Energy      FON(1)    FON(2)    FON(3)    FON(4)   Spin"
+      write(strTmp,'(A)') "PPS"
+      write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+          & trim(strTmp), energy(1), n_a, n_b, n_c, n_d, 0.0_dp
+
+    else
+
+      write(stdOut,'(A27,2x,F15.8)') " Final SA-REKS(4,4) energy:", Eavg
+      write(stdOut,*) " "
+      write(stdOut,'(A66)') " State     Energy      FON(1)    FON(2)    FON(3)    FON(4)   Spin"
+      if (indPPS > 0) then
+        write(strTmp,'(A)') "PPS"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indPPS), n_a, n_b, n_c, n_d, 0.0_dp
+      end if
+      if (indOSS1 > 0) then
+        write(strTmp,'(A)') "OSS1"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indOSS1), np_a, 1.0_dp, 1.0_dp, np_d, 0.0_dp
+      end if
+      if (indOSS2 > 0) then
+        write(strTmp,'(A)') "OSS2"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indOSS2), 1.0_dp, np_b, np_c, 1.0_dp, 0.0_dp
+      end if
+      if (indOSS3 > 0) then
+        write(strTmp,'(A)') "OSS3"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indOSS3), mp_a, 1.0_dp, mp_c, 1.0_dp, 0.0_dp
+      end if
+      if (indOSS4 > 0) then
+        write(strTmp,'(A)') "OSS4"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indOSS4), 1.0_dp, mp_b, 1.0_dp, mp_d, 0.0_dp
+      end if
+      if (indDOSS > 0) then
+        write(strTmp,'(A)') "DOSS"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indDOSS), 1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 0.0_dp
+      end if
+      if (indDSPS > 0) then
+        write(strTmp,'(A)') "DSPS"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indDSPS), 1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 0.0_dp
+      end if
+      if (indDES1 > 0) then
+        write(strTmp,'(A)') "DES1"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indDES1), n_a, n_c, n_b, n_d, 0.0_dp
+      end if
+      if (indDES2 > 0) then
+        write(strTmp,'(A)') "DES2"
+        write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+            & trim(strTmp), energy(indDES2), n_d, n_b, n_c, n_a, 0.0_dp
+      end if
+      write(strTmp,'(A)') "Quin"
+      write(stdOut,'(1x,a4,1x,f13.8,1x,4(f10.6),2x,f4.2)') &
+          & trim(strTmp), enLtot(35), 1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 2.0_dp
+
+    end if
+    write(stdOut, "(A)") repeat("-", 70)
+
+    if (Plevel >= 2) then
+      write(stdOut,*) " "
+      write(stdOut, "(A)") repeat("-", 25)
+      write(stdOut,'(1x,A20,2x,F15.8)') " Microstate Energies"
+      do iL = 1, Lmax
+        write(stdOut,"(1x,'L =',1x,I2,':',1x,F13.8)") iL, enLtot(iL)
+      end do
+      write(stdOut, "(A)") repeat("-", 25)
+    end if
+
+  end subroutine printReksSAInfo44_
+
+
   !> print SI-SA-REKS(2,2) result in standard output
   subroutine printReksSSRInfo22_(Wab, tmpEn, StateCoup, energy, eigvecsSSR, &
       & Na, tAllStates, tSSR)
@@ -613,11 +757,10 @@ module dftbp_reks_reksio
     if (tSSR) then
       write(stdOut,*)
       write(stdOut, "(A)") repeat("-", 64)
+      write(stdOut,'(A)') " SSR: SI-SA-REKS(2,2) states"
       if (.not. tAllStates) then
-        write(stdOut,'(A)') " SSR: 2SI-2SA-REKS(2,2) states"
         write(stdOut,'(19x,A4,7x,A7,4x,A7)') "E_n", "C_{PPS}", "C_{OSS}"
       else
-        write(stdOut,'(A)') " SSR: 3SI-2SA-REKS(2,2) states"
         write(stdOut,'(19x,A4,7x,A7,4x,A7,4x,A7)') "E_n", "C_{PPS}", "C_{OSS}", "C_{DES}"
       end if
       do ist = 1, nstates
@@ -633,6 +776,225 @@ module dftbp_reks_reksio
     end if
 
   end subroutine printReksSSRInfo22_
+
+
+  !> print SI-SA-REKS(4,4) result in standard output
+  subroutine printReksSSRInfo44_(Wab, tmpEn, StateCoup, energy, eigvecsSSR, &
+      & Efunction, Na, tAllStates, tSSR)
+
+    !> converged Lagrangian values within active space
+    real(dp), intent(in) :: Wab(:,:)
+
+    !> SA-REKS energies
+    real(dp), intent(in) :: tmpEn(:)
+
+    !> state-interaction term between SA-REKS states
+    real(dp), intent(in) :: StateCoup(:,:)
+
+    !> energy of states
+    real(dp), intent(in) :: energy(:)
+
+    !> eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSR(:,:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Number of active orbitals
+    integer, intent(in) :: Na
+
+    !> Decide the energy states in SA-REKS
+    logical, intent(in) :: tAllStates
+
+    !> Calculate SSR state with inclusion of SI, otherwise calculate SA-REKS state
+    logical, intent(in) :: tSSR
+
+    integer :: ist, jst, nstates, ia, ib, nActPair
+    integer :: indPPS, indOSS1, indOSS2
+    integer :: indOSS3, indOSS4, indDOSS
+    integer :: indDSPS, indDES1, indDES2
+    character(len=8) :: strTmp
+    character(len=1) :: stA, stB
+
+    nActPair = size(Wab,dim=1)
+    nstates = size(energy,dim=1)
+
+    if (tAllStates) then
+      indPPS = 1; indOSS1 = 2; indOSS2 = 3
+      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+      indDSPS = 7; indDES1 = 8; indDES2 = 9
+    else
+      indPPS = 1
+      if (Efunction == 2) then
+        indDSPS = 2
+      else if (Efunction == 3 .or. Efunction == 4) then
+        indOSS1 = 2; indOSS2 = 3
+        if (Efunction == 4) then
+          indOSS3 = 4; indOSS4 = 5
+        end if
+      end if
+    end if
+
+    write(stdOut,*)
+    do ist = 1, nActPair
+
+      call getTwoIndices(Na, ist, ia, ib, 1)
+
+      call getSpaceSym(ia, stA)
+      call getSpaceSym(ib, stB)
+
+      write(stdOut,"(1x,'Lagrangian W',A1,A1,': ',2(f12.8))") &
+          & trim(stA), trim(stB), Wab(ist,1), Wab(ist,2)
+
+    end do
+
+    write(stdOut,*)
+    if (Efunction == 2) then
+      if (.not. tAllStates) then
+        write(stdOut, "(A)") repeat("-", 45)
+        write(stdOut,'(A)') " SSR: 2SI-2SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4)') "PPS ", "DSPS"
+      else
+        write(stdOut, "(A)") repeat("-", 135)
+        write(stdOut,'(A)') " SSR: 9SI-2SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
+            & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
+      end if
+    else if (Efunction == 3) then
+      if (.not. tAllStates) then
+        write(stdOut, "(A)") repeat("-", 50)
+        write(stdOut,'(A)') " SSR: 3SI-3SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4)') "PPS ", "OSS1", "OSS2"
+      else
+        write(stdOut, "(A)") repeat("-", 135)
+        write(stdOut,'(A)') " SSR: 9SI-3SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
+            & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
+      end if
+    else if (Efunction == 4) then
+      if (.not. tAllStates) then
+        write(stdOut, "(A)") repeat("-", 80)
+        write(stdOut,'(A)') " SSR: 5SI-5SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') "PPS ", "OSS1", &
+            & "OSS2", "OSS3", "OSS4"
+      else
+        write(stdOut, "(A)") repeat("-", 135)
+        write(stdOut,'(A)') " SSR: 9SI-5SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
+            & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
+      end if
+    end if
+
+    do ist = 1, nstates
+      if (ist == indPPS) then
+        write(strTmp,'(A)') "PPS "
+      else if (ist == indOSS1) then
+        write(strTmp,'(A)') "OSS1"
+      else if (ist == indOSS2) then
+        write(strTmp,'(A)') "OSS2"
+      else if (ist == indOSS3) then
+        write(strTmp,'(A)') "OSS3"
+      else if (ist == indOSS4) then
+        write(strTmp,'(A)') "OSS4"
+      else if (ist == indDOSS) then
+        write(strTmp,'(A)') "DOSS"
+      else if (ist == indDSPS) then
+        write(strTmp,'(A)') "DSPS"
+      else if (ist == indDES1) then
+        write(strTmp,'(A)') "DES1"
+      else if (ist == indDES2) then
+        write(strTmp,'(A)') "DES2"
+      end if
+      write(stdOut,'(1x,a5,1x)',advance="no") trim(strTmp)
+      do jst = 1, nstates
+        if (ist == jst) then
+          if (jst == nstates) then
+            write(stdOut,'(1x,f13.8)') tmpEn(ist)
+          else
+            write(stdOut,'(1x,f13.8)',advance="no") tmpEn(ist)
+          end if
+        else
+          if (jst == nstates) then
+            write(stdOut,'(1x,f13.8)') StateCoup(ist,jst)
+          else
+            write(stdOut,'(1x,f13.8)',advance="no") StateCoup(ist,jst)
+          end if
+        end if
+      end do
+    end do
+    if (.not. tAllStates) then
+      if (Efunction == 2) then
+        write(stdOut, "(A)") repeat("-", 45)
+      else if (Efunction == 3) then
+        write(stdOut, "(A)") repeat("-", 50)
+      else if (Efunction == 4) then
+        write(stdOut, "(A)") repeat("-", 80)
+      end if
+    else
+      write(stdOut, "(A)") repeat("-", 135)
+    end if
+
+    if (tSSR) then
+      write(stdOut,*)
+      if (.not. tAllStates) then
+        if (Efunction == 2) then
+          write(stdOut, "(A)") repeat("-", 52)
+        else if (Efunction == 3) then
+          write(stdOut, "(A)") repeat("-", 64)
+        else if (Efunction == 4) then
+          write(stdOut, "(A)") repeat("-", 85)
+        end if
+      else
+        write(stdOut, "(A)") repeat("-", 130)
+      end if
+      write(stdOut,'(A)') " SSR: SI-SA-REKS(4,4) states"
+      if (.not. tAllStates) then
+        if (Efunction == 2) then
+          write(stdOut,'(19x,A4,7x,A7,4x,A8)') "E_n", "C_{PPS}", "C_{DSPS}"
+        else if (Efunction == 3) then
+          write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8)') "E_n", "C_{PPS}",&
+              & "C_{OSS1}", "C_{OSS2}"
+        else if (Efunction == 4) then
+          write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8,3x,A8,3x,A8)') "E_n",&
+              & "C_{PPS}", "C_{OSS1}", "C_{OSS2}", "C_{OSS3}", "C_{OSS4}"
+        end if
+      else
+        write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8)')&
+            & "E_n", "C_{PPS}", "C_{OSS1}", "C_{OSS2}", "C_{OSS3}", "C_{OSS4}",&
+            & "C_{DOSS}", "C_{DSPS}", "C_{DES1}", "C_{DES2}"
+      end if
+      do ist = 1, nstates
+        if (.not. tAllStates) then
+          if (Efunction == 2) then
+            write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6)')&
+                & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+          else if (Efunction == 3) then
+            write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6)')&
+                & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+          else if (Efunction == 4) then
+            write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6)')&
+                & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+          end if
+        else
+          write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,&
+              & 1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6)') &
+              & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+        end if
+      end do
+      if (.not. tAllStates) then
+        if (Efunction == 2) then
+          write(stdOut, "(A)") repeat("-", 52)
+        else if (Efunction == 3) then
+          write(stdOut, "(A)") repeat("-", 64)
+        else if (Efunction == 4) then
+          write(stdOut, "(A)") repeat("-", 85)
+        end if
+      else
+        write(stdOut, "(A)") repeat("-", 130)
+      end if
+    end if
+
+  end subroutine printReksSSRInfo44_
 
 
 end module dftbp_reks_reksio
