@@ -37,10 +37,13 @@ module dftbp_reks_reksfon
   contains
 
   !> Optimize the fractional occupation numbers (FONs) in REKS
-  subroutine optimizeFons(this)
+  subroutine optimizeFons(this, tConverged)
 
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
 
     real(dp) :: enLtot(6)
     real(dp) :: x1, x2, tmp_hess
@@ -57,15 +60,26 @@ module dftbp_reks_reksfon
 
     case (reksTypes%ssr44)
 
-      optFON1 = .true.
-      optFON2 = .false.
-      optFON3 = .false.
-
-      if (this%Efunction == 3) then
-        optFON2 = .true.
-      else if (this%Efunction == 4) then
-        optFON2 = .true.
-        optFON3 = .true.
+      if (.not. tConverged) then
+        optFON1 = .true.
+        optFON2 = .false.
+        optFON3 = .false.
+        if (this%Efunction == 3) then
+          optFON2 = .true.
+        else if (this%Efunction == 4) then
+          optFON2 = .true.
+          optFON3 = .true.
+        end if
+      else
+        optFON1 = .false.
+        optFON2 = .false.
+        optFON3 = .false.
+        if (this%Efunction == 2) then
+          optFON2 = .true.
+          optFON3 = .true.
+        else if (this%Efunction == 3) then
+          optFON3 = .true.
+        end if
       end if
 
       if (optFON1) then

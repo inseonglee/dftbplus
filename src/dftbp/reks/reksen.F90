@@ -704,7 +704,7 @@ module dftbp_reks_reksen
     weight(:) = 0.0_dp
     do iL = 1, Lmax
       do ist = 1, SAstates
-        weight(iL) = weight(iL) + SAweight(ist)*weightL(ist,iL)
+        weight(iL) = weight(iL) + SAweight(ist) * weightL(ist,iL)
       end do
     end do
 
@@ -895,12 +895,14 @@ module dftbp_reks_reksen
     ! Efunction = 2 -> (PPS+DSPS)/2 state is optimized
     ! Efunction = 3 -> (PPS+OSS1+OSS2)/3 state is optimized
     ! Efunction = 4 -> (PPS+OSS1+OSS2+OSS3+OSS4)/5 state is optimized
-    weight(:) = 0.0_dp
-    do iL = 1, Lmax
-      do ist = 1, SAstates
-        weight(iL) = weight(iL) + SAweight(ist)*weightL(ist,iL)
+    if (.not. tConverged) then
+      weight(:) = 0.0_dp
+      do iL = 1, Lmax
+        do ist = 1, SAstates
+          weight(iL) = weight(iL) + SAweight(ist) * weightL(ist,iL)
+        end do
       end do
-    end do
+    end if
 
   end subroutine getWeightL44_
 

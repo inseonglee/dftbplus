@@ -99,9 +99,9 @@ module dftbp_dftbplus_main
   use dftbp_md_xlbomd, only : TXLBOMD
   use dftbp_mixer_mixer, only : TMixerReal, TMixerCmplx, TMixerReal_reset, TMixerCmplx_reset,&
       & TMixerReal_mix, TMixerCmplx_mix, TMixerReal_getInverseJacobian
-  use dftbp_reks_reks, only : TReksCalc, guessneweigvecs, optimizeFONs, calcweights, activeorbswap,&
-      & getfilling, calcsareksenergy, printsareksenergy, qm2udl, printreksmicrostates, qmexpandl,&
-      & ud2qml, constructmicrostates, checkgammapoint, getfockanddiag, printrekssainfo,&
+  use dftbp_reks_reks, only : TReksCalc, reksTypes, guessneweigvecs, optimizeFONs, calcweights,&
+      & activeorbswap, getfilling, calcsareksenergy, printsareksenergy, qm2udl, printreksmicrostates,&
+      & qmexpandl, ud2qml, constructmicrostates, checkgammapoint, getfockanddiag, printrekssainfo,&
       & getstateinteraction, getreksenproperties, getreksgradients, getreksgradproperties,&
       & getReksStress
   use dftbp_solvation_cm5, only : TChargeModel5
@@ -1315,6 +1315,7 @@ contains
 
         if (tConverged .or. tStopScc) then
 
+          call getConvergedProperties(tConverged, this%dftbEnergy(1), this%reks)
           call printReksSAInfo(this%reks, this%dftbEnergy(1)%Eavg)
 
           call getStateInteraction(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
@@ -8394,7 +8395,7 @@ contains
     !> Data type for REKS
     type(TReksCalc), intent(inout) :: reks
 
-    call optimizeFons(reks)
+    call optimizeFons(reks, tConverged)
     call calcWeights(reks, tConverged)
 
     call activeOrbSwap(reks, eigvecs(:,:,1))
@@ -8536,6 +8537,34 @@ contains
     end if
 
   end subroutine getReksNextInputDensity
+
+
+  !> Calculate the properties using converged information
+  subroutine getConvergedProperties(tConverged, energy, reks)
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
+
+    !> Energy contributions
+    type(TEnergies), intent(inout) :: energy
+
+    !> Data type for REKS
+    type(TReksCalc), intent(inout) :: reks
+
+    select case (reks%reksAlg)
+    case (reksTypes%noReks)
+    case (reksTypes%ssr22)
+      ! All required properties are already obtained during SCC cycles
+    case (reksTypes%ssr44)
+      call optimizeFons(reks, tConverged)
+      call calcWeights(reks, tConverged)
+      call calcSaReksEnergy(reks, energy, tConverged)
+      if (reks%Plevel >= 2) then
+        call printSaReksEnergy(reks)
+      end if
+    end select
+
+  end subroutine getConvergedProperties
 
 
   !> Set correct dipole moment according to type of REKS calculation
