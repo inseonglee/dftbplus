@@ -1272,7 +1272,8 @@ contains
             & this%tFixEf, this%Ef, this%rhoPrim, this%onSiteElements, this%dispersion, tConverged,&
             & this%species0, this%referenceN0, this%qNetAtom, this%multipoleOut, this%reks, errStatus)
         @:PROPAGATE_ERROR(errStatus)
-        call optimizeFONsAndWeights(this%eigvecsReal, this%filling, this%dftbEnergy(1), this%reks)
+        call optimizeFONsAndWeights(tConverged, this%eigvecsReal, this%filling, this%dftbEnergy(1),&
+            & this%reks)
 
         call getFockandDiag(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
             & this%iSparseStart, this%img2CentCell, this%eigvecsReal, this%electronicSolver,&
@@ -8376,7 +8377,10 @@ contains
   !> Optimize the fractional occupation numbers (FONs) and weights
   !> Swap the active orbitals when fa < fb
   !> Compute the several energy contributions
-  subroutine optimizeFONsAndWeights(eigvecs, filling, energy, reks)
+  subroutine optimizeFONsAndWeights(tConverged, eigvecs, filling, energy, reks)
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
 
     !> Eigenvectors
     real(dp), intent(inout) :: eigvecs(:,:,:)
@@ -8391,7 +8395,7 @@ contains
     type(TReksCalc), intent(inout) :: reks
 
     call optimizeFons(reks)
-    call calcWeights(reks)
+    call calcWeights(reks, tConverged)
 
     call activeOrbSwap(reks, eigvecs(:,:,1))
     call getFilling(reks, filling(:,1,1))

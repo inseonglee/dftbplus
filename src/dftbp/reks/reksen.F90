@@ -59,17 +59,21 @@ module dftbp_reks_reksen
 
 
   !> Calculate the weight of each microstate for current cycle, C_L
-  subroutine calcWeights(this)
+  subroutine calcWeights(this, tConverged)
 
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
 
     select case (this%reksAlg)
     case (reksTypes%noReks)
     case (reksTypes%ssr22)
       call getWeightL22_(this%FONs, this%delta, this%SAweight, this%weightL, this%weight)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      call getWeightL44_(this%FONs, this%delta, this%SAweight, this%Efunction, &
+          & this%tAllStates, tConverged, this%weightL, this%weight)
     end select
 
   end subroutine calcWeights
@@ -652,8 +656,8 @@ module dftbp_reks_reksen
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(out) :: weight(:)
 
-    integer :: iL, Lmax, ist, SAstates, nstates
     real(dp) :: n_a, n_b, fac
+    integer :: iL, Lmax, ist, SAstates, nstates
 
     Lmax = size(weightL,dim=2)
     SAstates = size(SAweight,dim=1)
@@ -671,7 +675,7 @@ module dftbp_reks_reksen
     weightL(1,5) = -fac
     weightL(1,6) = -fac
 
-    if(nstates >= 2) then
+    if (nstates >= 2) then
       weightL(2,1) = 0.0_dp
       weightL(2,2) = 0.0_dp
       weightL(2,3) = 1.0_dp
@@ -680,7 +684,7 @@ module dftbp_reks_reksen
       weightL(2,6) = -0.5_dp
     end if
 
-    if(nstates >= 3) then
+    if (nstates >= 3) then
       weightL(3,1) = 0.5_dp*n_b
       weightL(3,2) = 0.5_dp*n_a
       weightL(3,3) = -fac
@@ -689,9 +693,9 @@ module dftbp_reks_reksen
       weightL(3,6) = fac
     end if
 
-    ! Decide which state will be optimized
-    ! SAstates = 1 -> PPS state is optimized
-    ! SAstates = 2 -> (PPS+OSS)/2 state (averaged state) is optimized
+    ! Decide which state will be optimized; single-state REKS or SA-REKS
+    ! Efunction = 1 -> PPS state is optimized
+    ! Efunction = 2 -> (PPS+OSS)/2 state is optimized
     weight(:) = 0.0_dp
     do iL = 1, Lmax
       do ist = 1, SAstates
@@ -700,6 +704,200 @@ module dftbp_reks_reksen
     end do
 
   end subroutine getWeightL22_
+
+
+  !> Make (4e,4o) weights, C_L used in SA-REKS
+  subroutine getWeightL44_(FONs, delta, SAweight, Efunction, tAllStates, tConverged,&
+      & weightL, weight)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Smoothing factor used in FON optimization
+    real(dp), intent(in) :: delta
+
+    !> Weights used in state-averaging
+    real(dp), intent(in) :: SAweight(:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Decide the energy states in SA-REKS
+    logical, intent(in) :: tAllStates
+
+    !> Has the calculation converged?
+    logical, intent(in) :: tConverged
+
+    !> Weight for each microstate per state
+    real(dp), intent(out) :: weightL(:,:)
+
+    !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
+    real(dp), intent(out) :: weight(:)
+
+    real(dp) :: n_a, n_b, n_c, n_d
+    real(dp) :: np_a, np_b, np_c, np_d
+    real(dp) :: mp_a, mp_b, mp_c, mp_d
+    real(dp) :: fac1, fac2
+    integer :: iL, Lmax, ist, SAstates
+    integer :: indPPS, indOSS1, indOSS2
+    integer :: indOSS3, indOSS4, indDOSS
+    integer :: indDSPS, indDES1, indDES2
+
+    Lmax = size(weightL,dim=2)
+    SAstates = size(SAweight,dim=1)
+
+    ! Reset the indices for SA-REKS(4,4) states
+    indPPS = 0; indOSS1 = 0; indOSS2 = 0
+    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
+    indDSPS = 0; indDES1 = 0; indDES2 = 0
+
+    if (tAllStates .and. tConverged) then
+      ! Calculate weight of 9 states
+      indPPS = 1; indOSS1 = 2; indOSS2 = 3
+      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+      indDSPS = 7; indDES1 = 8; indDES2 = 9
+    else
+      ! Calculate weight of states used for state-averaging
+      ! PPS state
+      indPPS = 1
+      if (Efunction == 2) then
+        ! DSPS state
+        indDSPS = 2
+      else if (Efunction == 3 .or. Efunction == 4) then
+        ! OSS1, OSS2 state
+        indOSS1 = 2; indOSS2 = 3
+        if (Efunction == 4) then
+          ! OSS3, OSS4 state
+          indOSS3 = 4; indOSS4 = 5
+        end if
+      end if
+    end if
+
+    n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
+    np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
+    mp_a = FONs(1,3); mp_b = FONs(2,3); mp_c = FONs(3,3); mp_d = FONs(4,3)
+
+    if (indPPS > 0) then
+      weightL(indPPS,:) = 0.0_dp
+      fac1 = getFactor(n_a, n_d, delta)
+      fac2 = getFactor(n_b, n_c, delta)
+      weightL(indPPS,1) = 0.25_dp * n_a * n_b
+      weightL(indPPS,2) = 0.25_dp * n_a * n_c
+      weightL(indPPS,3) = 0.25_dp * n_b * n_d
+      weightL(indPPS,4) = 0.25_dp * n_c * n_d
+      weightL(indPPS,5) = fac1; weightL(indPPS,6) = fac1
+      weightL(indPPS,7) = -fac1; weightL(indPPS,8) = -fac1
+      weightL(indPPS,9) = fac2; weightL(indPPS,10) = fac2
+      weightL(indPPS,11) = -fac2; weightL(indPPS,12) = -fac2
+    end if
+
+    if (indOSS1 > 0) then
+      weightL(indOSS1,:) = 0.0_dp
+      fac1 = getFactor(np_a, np_d, delta)
+      weightL(indOSS1,5) = fac1; weightL(indOSS1,6) = fac1
+      weightL(indOSS1,7) = -fac1; weightL(indOSS1,8) = -fac1
+      weightL(indOSS1,9)  = 0.25_dp * np_a + 0.5_dp 
+      weightL(indOSS1,10) = 0.25_dp * np_a + 0.5_dp
+      weightL(indOSS1,11) = -0.5_dp
+      weightL(indOSS1,12) = -0.5_dp
+      weightL(indOSS1,13) = 0.25_dp * np_d
+      weightL(indOSS1,14) = 0.25_dp * np_d
+    end if
+
+    if (indOSS2 > 0) then
+      weightL(indOSS2,:) = 0.0_dp
+      fac2 = getFactor(np_b, np_c, delta)
+      weightL(indOSS2,5) = 0.25_dp * np_b + 0.5_dp 
+      weightL(indOSS2,6) = 0.25_dp * np_b + 0.5_dp
+      weightL(indOSS2,7) = -0.5_dp
+      weightL(indOSS2,8) = -0.5_dp
+      weightL(indOSS2,9)  = fac2; weightL(indOSS2,10) = fac2
+      weightL(indOSS2,11) = -fac2; weightL(indOSS2,12) = -fac2
+      weightL(indOSS2,15) = 0.25_dp * np_c
+      weightL(indOSS2,16) = 0.25_dp * np_c
+    end if
+
+    if (indOSS3 > 0) then
+      weightL(indOSS3,:) = 0.0_dp
+      fac1 = getFactor(mp_a, mp_c, delta)
+      weightL(indOSS3,17) = 0.25_dp * mp_a + 0.5_dp 
+      weightL(indOSS3,18) = 0.25_dp * mp_a + 0.5_dp
+      weightL(indOSS3,19) = -0.5_dp
+      weightL(indOSS3,20) = -0.5_dp
+      weightL(indOSS3,21) = fac1; weightL(indOSS3,22) = fac1
+      weightL(indOSS3,23) = -fac1; weightL(indOSS3,24) = -fac1
+      weightL(indOSS3,25) = 0.25_dp * mp_c
+      weightL(indOSS3,26) = 0.25_dp * mp_c
+    end if
+
+    if (indOSS4 > 0) then
+      weightL(indOSS4,:) = 0.0_dp
+      fac2 = getFactor(mp_b, mp_d, delta)
+      weightL(indOSS4,17) = fac2; weightL(indOSS4,18) = fac2
+      weightL(indOSS4,19) = -fac2; weightL(indOSS4,20) = -fac2
+      weightL(indOSS4,21) = 0.25_dp * mp_b + 0.5_dp 
+      weightL(indOSS4,22) = 0.25_dp * mp_b + 0.5_dp
+      weightL(indOSS4,23) = -0.5_dp
+      weightL(indOSS4,24) = -0.5_dp
+      weightL(indOSS4,27) = 0.25_dp * mp_d
+      weightL(indOSS4,28) = 0.25_dp * mp_d
+    end if
+
+    if (indDOSS > 0) then
+      weightL(indDOSS,:) = 0.0_dp
+      weightL(indDOSS,29) = 0.5_dp; weightL(indDOSS,30) = 0.5_dp
+      weightL(indDOSS,31) = 0.5_dp; weightL(indDOSS,32) = 0.5_dp
+      weightL(indDOSS,33) = -0.25_dp; weightL(indDOSS,34) = -0.25_dp
+      weightL(indDOSS,35) = -0.25_dp; weightL(indDOSS,36) = -0.25_dp
+    end if
+
+    if (indDSPS > 0) then
+      weightL(indDSPS,:) = 0.0_dp
+      weightL(indDSPS,33) = 0.75_dp; weightL(indDSPS,34) = 0.75_dp
+      weightL(indDSPS,35) = -0.25_dp; weightL(indDSPS,36) = -0.25_dp
+    end if
+
+    if (indDES1 > 0) then
+      weightL(indDES1,:) = 0.0_dp
+      fac1 = getFactor(n_a, n_d, delta)
+      fac2 = getFactor(n_b, n_c, delta)
+      weightL(indDES1,1) = 0.25_dp * n_a * n_c
+      weightL(indDES1,2) = 0.25_dp * n_a * n_b
+      weightL(indDES1,3) = 0.25_dp * n_c * n_d
+      weightL(indDES1,4) = 0.25_dp * n_b * n_d
+      weightL(indDES1,5) = fac1; weightL(indDES1,6) = fac1
+      weightL(indDES1,7) = -fac1; weightL(indDES1,8) = -fac1
+      weightL(indDES1,9) = -fac2; weightL(indDES1,10) = -fac2
+      weightL(indDES1,11) = fac2; weightL(indDES1,12) = fac2
+    end if
+
+    if (indDES2 > 0) then
+      weightL(indDES2,:) = 0.0_dp
+      fac1 = getFactor(n_a, n_d, delta)
+      fac2 = getFactor(n_b, n_c, delta)
+      weightL(indDES2,1) = 0.25_dp * n_d * n_b
+      weightL(indDES2,2) = 0.25_dp * n_d * n_c
+      weightL(indDES2,3) = 0.25_dp * n_b * n_a
+      weightL(indDES2,4) = 0.25_dp * n_c * n_a
+      weightL(indDES2,5) = -fac1; weightL(indDES2,6) = -fac1
+      weightL(indDES2,7) = fac1; weightL(indDES2,8) = fac1
+      weightL(indDES2,9) = fac2; weightL(indDES2,10) = fac2
+      weightL(indDES2,11) = -fac2; weightL(indDES2,12) = -fac2
+    end if
+
+    ! Decide which state will be optimized; single-state REKS or SA-REKS
+    ! Efunction = 1 -> PPS state is optimized
+    ! Efunction = 2 -> (PPS+DSPS)/2 state is optimized
+    ! Efunction = 3 -> (PPS+OSS1+OSS2)/3 state is optimized
+    ! Efunction = 4 -> (PPS+OSS1+OSS2+OSS3+OSS4)/5 state is optimized
+    weight(:) = 0.0_dp
+    do iL = 1, Lmax
+      do ist = 1, SAstates
+        weight(iL) = weight(iL) + SAweight(ist)*weightL(ist,iL)
+      end do
+    end do
+
+  end subroutine getWeightL44_
 
 
   !> Swap active orbitals when fa < fb in REKS(2,2) case
