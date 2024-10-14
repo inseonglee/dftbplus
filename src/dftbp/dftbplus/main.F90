@@ -1318,10 +1318,11 @@ contains
           call getConvergedProperties(tConverged, this%dftbEnergy(1), this%reks)
           call printReksSAInfo(this%reks, this%dftbEnergy(1)%Eavg)
 
-          call getStateInteraction(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
-              & this%iSparseStart, this%img2CentCell, this%coord, this%iAtInCentralRegion,&
-              & this%eigvecsReal, this%electronicSolver, this%eigen, this%qOutput, this%q0,&
-              & this%tDipole, dipoleTmp, this%reks)
+          call getStateInteraction(env, this%denseDesc, this%hybridXc, this%orb,&
+              & this%neighbourList, this%nNeighbourSK, this%iSparseStart, this%img2CentCell,&
+              & this%coord, this%species, this%iAtInCentralRegion, this%spinW,&
+              & this%onSiteElements, this%eigvecsReal, this%electronicSolver, this%eigen,&
+              & this%qOutput, this%q0, this%tDipole, dipoleTmp, this%reks)
           call assignDipoleMoment(dipoleTmp, this%dipoleMoment, this%deltaDftb%iDeterminant,&
               & this%tDipole, this%reks, isSingleState=.true.)
 

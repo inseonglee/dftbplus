@@ -15,21 +15,25 @@
 !> * Onsite corrections are not included in this version
 module dftbp_reks_rekscommon
   use dftbp_common_accuracy, only : dp
+  use dftbp_common_environment, only : TEnvironment
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
+  use dftbp_dftb_scc, only : TScc
   use dftbp_io_message, only: error
   use dftbp_math_blasroutines, only : gemm
+  use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
+  use dftbp_type_orbitals, only : TOrbitals
 
   implicit none
 
   private
   public :: checkGammaPoint
-  public :: getFactor
-  public :: getTwoIndices
+  public :: getFactor, getTwoIndices
   public :: qm2udL, ud2qmL
   public :: qmExpandL, udExpandL
   public :: matAO2MO, matMO2AO
-  public :: getSpaceSym
+  public :: getSpaceSym, getFullLongRangePars
   public :: assignIndex, assignEpsilon, assignFilling
 
   !> Swap from charge/magnetisation to up/down in REKS
@@ -513,6 +517,237 @@ module dftbp_reks_rekscommon
     end if
 
   end subroutine getSpaceSym
+
+
+  !> Calculate SCC, spin, LC parameters with matrix form
+  subroutine getFullLongRangePars(env, sccCalc, hybridXc, orb, species, iNeighbour,&
+      & img2CentCell, iSquare, spinW, onSiteElements, getAtomIndex, isOnsite,&
+      & isHybridXc, isRS_OnsCorr, GammaAO, GammaDeriv, SpinAO, OnsiteAO, LrGammaAO,&
+      & LrGammaDeriv, LrOnsiteAO, optionERI)
+
+    !> Computational environment settings
+    type(TEnvironment), intent(in) :: env
+
+    !> SCC module internal variables
+    type(TScc), allocatable, intent(inout) :: sccCalc
+
+    !> Range separation contributions
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> list of all atomic species
+    integer, intent(in) :: species(:)
+
+    !> neighbour list for atoms
+    integer, intent(in) :: iNeighbour(0:,:)
+
+    !> indexing array for periodic image atoms
+    integer, intent(in) :: img2CentCell(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> spin constants
+    real(dp), intent(in) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
+    !> get atom index from AO index
+    integer, intent(in) :: getAtomIndex(:)
+
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
+    !> Whether to run a range separated calculation
+    logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
+    !> scc gamma integrals in AO basis
+    real(dp), intent(out) :: GammaAO(:,:)
+
+    !> scc gamma derivative integrals
+    real(dp), intent(out) :: GammaDeriv(:,:,:)
+
+    !> spin W in AO basis
+    real(dp), intent(out) :: SpinAO(:,:)
+
+    !> onSiteElements in AO basis
+    real(dp), allocatable, intent(inout) :: OnsiteAO(:,:,:,:)
+
+    !> long-range gamma integrals in AO basis
+    real(dp), allocatable, intent(inout) :: LrGammaAO(:,:)
+
+    !> long-range gamma derivative integrals
+    real(dp), allocatable, intent(inout) :: LrGammaDeriv(:,:,:)
+
+    !> onSiteElements with long-range exchange kernel in AO basis
+    real(dp), allocatable, intent(inout) :: LrOnsiteAO(:,:,:)
+
+    !> option for ERI calculations
+    logical, intent(in) :: optionERI
+
+    real(dp), allocatable :: tmpGamma(:,:)
+    real(dp), allocatable :: tmpLrGamma(:,:)
+
+    integer :: nOrb, nAtom
+    integer :: mu, nu, ii, iAt1, iAt2, iSh1, iSh2, iSpin
+
+    nOrb = size(SpinAO,dim=1)
+    nAtom = size(iSquare,dim=1) - 1
+
+    if (.not. optionERI) then
+      allocate(tmpGamma(nAtom,nAtom))
+    end if
+    if (isHybridXc) then
+      allocate(tmpLrGamma(nAtom,nAtom))
+    end if
+
+    if (.not. optionERI) then
+      ! get total gamma (gamma = 1/R - S)
+      tmpGamma(:,:) = 0.0_dp
+      call sccCalc%getAtomicGammaMatrix(tmpGamma, iNeighbour, img2CentCell)
+      call adjointLowerTriangle(tmpGamma)
+      ! convert from atom to AO
+      GammaAO(:,:) = 0.0_dp
+      do iAt1 = 1, nAtom
+        do iAt2 = 1, nAtom
+          GammaAO(iSquare(iAt2):iSquare(iAt2+1)-1,iSquare(iAt1):iSquare(iAt1+1)-1) =&
+              & tmpGamma(iAt2,iAt1)
+        end do
+      end do
+
+      ! get total gamma derivative (gamma = 1/R - S)
+      call sccCalc%getGammaDeriv(env, species, iNeighbour, img2CentCell, GammaDeriv)
+      do ii = 1, 3
+        call adjointLowerTriangle(GammaDeriv(:,:,ii))
+      end do
+    end if
+
+    ! get spinW with respect to AO
+    SpinAO(:,:) = 0.0_dp
+    do mu = 1, nOrb
+      do nu = mu, nOrb
+        ! find proper atom index
+        iAt1 = getAtomIndex(mu)
+        iAt2 = getAtomIndex(nu)
+        if (iAt1 == iAt2) then
+
+          ! Find l-shell for mu
+          iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+          ! Find l-shell for nu
+          iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
+
+          SpinAO(nu,mu) = spinW(iSh2,iSh1,species(iAt1))
+
+          if (nu /= mu) then
+            SpinAO(mu,nu) = SpinAO(nu,mu)
+          end if
+
+        end if
+      end do
+    end do
+
+    if (isOnsite) then
+
+      ! Set onsite constant with full-range Hxc kernel
+      OnsiteAO(:,:,:,:) = 0.0_dp
+      do mu = 1, nOrb
+        do nu = mu, nOrb
+          ! find proper atom index
+          iAt1 = getAtomIndex(mu)
+          iAt2 = getAtomIndex(nu)
+          if (iAt1 == iAt2) then
+
+            ! Find l-shell for mu
+            iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+            ! Find l-shell for nu
+            iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
+
+            do iSpin = 1, size(OnsiteAO,dim=3)
+
+              OnsiteAO(nu,mu,iSpin,1) = onSiteElements(iSh2,iSh1,iSpin,species(iAt1))
+
+              if (iSh1 == iSh2 .and. iSh1 > 1) then
+                OnsiteAO(nu,mu,iSpin,2) = onSiteElements(iSh2,iSh1,iSpin,species(iAt1)) &
+                    & / (2.0_dp * iSh1 - 1.0_dp) / 2.0_dp
+              end if
+
+              if (nu /= mu) then
+                OnsiteAO(mu,nu,iSpin,:) = OnsiteAO(nu,mu,iSpin,:)
+              end if
+
+            end do
+
+          end if
+        end do
+      end do
+
+    end if
+
+    if (isHybridXc) then
+
+      ! get total CAM gamma
+      tmpLrGamma(:,:) = 0.0_dp
+      call hybridXc%getCamGammaCluster(tmpLrGamma)
+      ! convert from atom to AO
+      LrGammaAO(:,:) = 0.0_dp
+      do iAt1 = 1, nAtom
+        do iAt2 = 1, nAtom
+          LrGammaAO(iSquare(iAt2):iSquare(iAt2+1)-1,iSquare(iAt1):iSquare(iAt1+1)-1) =&
+              & tmpLrGamma(iAt2,iAt1)
+        end do
+      end do
+
+      if (.not. optionERI) then
+        ! get CAM gamma derivative
+        LrGammaDeriv(:,:,:) = 0.0_dp
+        call hybridXc%getCamGammaDerivCluster(LrGammaDeriv)
+        do ii = 1, 3
+          call adjointLowerTriangle(LrGammaDeriv(:,:,ii))
+        end do
+      end if
+
+    end if
+
+    if (isRS_OnsCorr) then
+
+      ! Set onsite constant with long-range exchange kernel
+      LrOnsiteAO(:,:,:) = 0.0_dp
+      do mu = 1, nOrb
+        do nu = mu, nOrb
+          ! find proper atom index
+          iAt1 = getAtomIndex(mu)
+          iAt2 = getAtomIndex(nu)
+          if (iAt1 == iAt2) then
+
+            ! Find l-shell for mu
+            iSh1 = orb%iShellOrb(mu-iSquare(iAt1)+1,species(iAt1))
+            ! Find l-shell for nu
+            iSh2 = orb%iShellOrb(nu-iSquare(iAt2)+1,species(iAt2))
+
+            LrOnSiteAO(nu,mu,1) = onSiteElements(iSh2,iSh1,3,species(iAt1))
+
+            if (iSh1 == iSh2 .and. iSh1 > 1) then
+              LrOnsiteAO(nu,mu,2) = onSiteElements(iSh2,iSh1,3,species(iAt1)) &
+                  & / (2.0_dp * iSh1 - 1.0_dp) / 2.0_dp
+            end if
+
+            if (nu /= mu) then
+              LrOnsiteAO(mu,nu,:) = LrOnsiteAO(nu,mu,:)
+            end if
+
+          end if
+        end do
+      end do
+
+    end if
+
+  end subroutine getFullLongRangePars
 
 
   !> Assign index in terms of dense form from super matrix form

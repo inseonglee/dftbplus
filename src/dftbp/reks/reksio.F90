@@ -125,13 +125,16 @@ module dftbp_reks_reksio
 
 
   !> print SI-SA-REKS result in standard output
-  subroutine printReksSSRInfo(this, Wab, tmpEn, StateCoup)
+  subroutine printReksSSRInfo(this, Wab, ERI, tmpEn, StateCoup)
 
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
     !> converged Lagrangian values within active space
     real(dp), intent(in) :: Wab(:,:)
+
+    !> electron repulsion integrals within active space (4,4); ab ac ad bc bd cd
+    real(dp), intent(in) :: ERI(:,:)
 
     !> SA-REKS energies
     real(dp), intent(in) :: tmpEn(:)
@@ -145,7 +148,7 @@ module dftbp_reks_reksio
       call printReksSSRInfo22_(Wab, tmpEn, StateCoup, this%energy, this%eigvecsSSR, &
           & this%Na, this%tAllStates, this%tSSR)
     case (reksTypes%ssr44)
-      call printReksSSRInfo44_(Wab, tmpEn, StateCoup, this%energy, this%eigvecsSSR, &
+      call printReksSSRInfo44_(Wab, ERI, tmpEn, StateCoup, this%energy, this%eigvecsSSR, &
           & this%Efunction, this%Na, this%tAllStates, this%tSSR)
     end select
 
@@ -779,11 +782,14 @@ module dftbp_reks_reksio
 
 
   !> print SI-SA-REKS(4,4) result in standard output
-  subroutine printReksSSRInfo44_(Wab, tmpEn, StateCoup, energy, eigvecsSSR, &
+  subroutine printReksSSRInfo44_(Wab, ERI, tmpEn, StateCoup, energy, eigvecsSSR, &
       & Efunction, Na, tAllStates, tSSR)
 
     !> converged Lagrangian values within active space
     real(dp), intent(in) :: Wab(:,:)
+
+    !> electron repulsion integrals within active space (4,4); ab ac ad bc bd cd
+    real(dp), intent(in) :: ERI(:,:)
 
     !> SA-REKS energies
     real(dp), intent(in) :: tmpEn(:)
@@ -847,6 +853,19 @@ module dftbp_reks_reksio
           & trim(stA), trim(stB), Wab(ist,1), Wab(ist,2)
 
     end do
+
+    write(stdOut,*)
+    write(stdOut, "(A)") repeat("-", 94)
+    write(stdOut,'(A)') " 4-index ERIs, (ij|kl)"
+    write(stdOut,'(15x,A2,12x,A2,12x,A2,12x,A2,12x,A2,12x,A2)') &
+        & "ab", "ac", "ad", "bc", "bd", "cd"
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "ab", ERI(1,:)
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "ac", ERI(2,:)
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "ad", ERI(3,:)
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "bc", ERI(4,:)
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "bd", ERI(5,:)
+    write(stdOut,'(4x,A2,1x,6(1x,f13.8))') "cd", ERI(6,:)
+    write(stdOut, "(A)") repeat("-", 94)
 
     write(stdOut,*)
     if (Efunction == 2) then

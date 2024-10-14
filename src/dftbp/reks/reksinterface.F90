@@ -38,15 +38,15 @@ module dftbp_reks_reksinterface
   use dftbp_io_taggedoutput, only : TTaggedWriter, tagLabels
   use dftbp_io_message, only : error
   use dftbp_math_matrixops, only : adjointLowerTriangle
-  use dftbp_reks_rekscommon, only : getTwoIndices
+  use dftbp_reks_rekscommon, only : getTwoIndices, getFullLongRangePars
   use dftbp_reks_rekscpeqn, only : cggrad
   use dftbp_reks_reksen, only : adjustEigenval, solveSecularEqn
   use dftbp_reks_reksgrad, only : weightgradient, ssrshift, sishift, satossrxt, satossrweight,&
       & addsitorq, ssrshift, lshift, getothersagrad, satossrgradient, getreksnac, rtshift, &
       & solvezt, getrmat, getzmat, getq2mat, getq1mat, buildsareksvectors, getrdel, getzmat,&
-      & buildinteractionvectors, getq2mat, getq1del, buildlstatevector, getfulllongrangepars,&
-      & gethxckernel, getsuperamatrix, getenergyweighteddensityl, derivative_blockl,&
-      & getg1ilomegarab, getextchrggradients
+      & buildinteractionvectors, getq2mat, getq1del, buildlstatevector, gethxckernel, &
+      & getsuperamatrix, getenergyweighteddensityl, derivative_blockl, getg1ilomegarab, &
+      & getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
       & getunrelaxeddensmatandtdp, getdipoleintegral, getdipolemomentmatrix, getreksosc
@@ -64,15 +64,22 @@ module dftbp_reks_reksinterface
   contains
 
   !> Calculate SSR state from SA-REKS states and state-interaction terms
-  subroutine getStateInteraction(env, denseDesc, neighbourList, nNeighbourSK,&
-      & iSparseStart, img2CentCell, coord, iAtInCentralRegion, eigenvecs,&
-      & electronicSolver, eigen, qOutput, q0, tDipole, dipoleMoment, this)
+  subroutine getStateInteraction(env, denseDesc, hybridXc, orb, neighbourList,&
+      & nNeighbourSK, iSparseStart, img2CentCell, coord, species, iAtInCentralRegion,&
+      & spinW, onSiteElements, eigenvecs, electronicSolver, eigen, qOutput, q0,&
+      & tDipole, dipoleMoment, this)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
+
+    !> Range separation contributions
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
@@ -89,8 +96,17 @@ module dftbp_reks_reksinterface
     !> atomic coordinates
     real(dp), intent(in) :: coord(:,:)
 
+    !> list of all atomic species
+    integer, intent(in) :: species(:)
+
     !> Atoms over which to sum the total energies
     integer, intent(in) :: iAtInCentralRegion(:)
+
+    !> spin constants
+    real(dp), intent(in) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
 
     !> Eigenvectors on eixt
     real(dp), intent(in) :: eigenvecs(:,:,:)
@@ -119,8 +135,9 @@ module dftbp_reks_reksinterface
     call adjustEigenval(this, eigen)
 
     if (this%Efunction > 1) then
-      call solveSecularEqn(env, denseDesc, neighbourList, nNeighbourSK, &
-          & iSparseStart, img2CentCell, electronicSolver, eigenvecs, this)
+      call solveSecularEqn(env, denseDesc, hybridXc, orb, neighbourList,&
+          & nNeighbourSK, iSparseStart, img2CentCell, species, electronicSolver,&
+          & eigenvecs, spinW, onSiteElements, this)
     else
       ! Get the dipole moment for single-state REKS case
       ! In this case dipole moment can be calculated w/o gradient result
@@ -371,7 +388,7 @@ module dftbp_reks_reksinterface
       ! get REKS parameters used in CP-REKS and gradient equations
       call getReksParameters_(env, denseDesc, sccCalc, hybridXc, orb, &
           & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
-          & eigenvecs, coord, species, over, spinW, onSiteElements, this)
+          & eigenvecs, species, over, spinW, onSiteElements, this)
 
       call buildStateVectors_(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, orb, over, this)
@@ -1031,7 +1048,7 @@ module dftbp_reks_reksinterface
   !> Set several REKS variables used in CP-REKS equations
   subroutine getReksParameters_(env, denseDesc, sccCalc, hybridXc, orb, &
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
-      & eigenvecs, coord, species, over, spinW, onSiteElements, this)
+      & eigenvecs, species, over, spinW, onSiteElements, this)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1063,9 +1080,6 @@ module dftbp_reks_reksinterface
     !> Eigenvectors on eixt
     real(dp), intent(in) :: eigenvecs(:,:,:)
 
-    !> atomic coordinates
-    real(dp), intent(in) :: coord(:,:)
-
     !> species of all atoms in the system
     integer, intent(in) :: species(:)
 
@@ -1082,11 +1096,11 @@ module dftbp_reks_reksinterface
     type(TReksCalc), intent(inout) :: this
 
     ! get gamma, spinW, gamma deriv, lr-gamma, lr-gamma deriv, on-site constants
-    call getFullLongRangePars(env, sccCalc, hybridXc, orb, coord, species,&
-        & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart,&
-        & spinW, onSiteElements, this%getAtomIndex, this%isOnsite, this%isHybridXc,&
-        & this%isRS_OnsCorr, this%GammaAO, this%GammaDeriv, this%SpinAO,&
-        & this%OnsiteAO, this%LrGammaAO, this%LrGammaDeriv, this%LrOnsiteAO)
+    call getFullLongRangePars(env, sccCalc, hybridXc, orb, species,&
+        & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart, spinW,&
+        & onSiteElements, this%getAtomIndex, this%isOnsite, this%isHybridXc,&
+        & this%isRS_OnsCorr, this%GammaAO, this%GammaDeriv, this%SpinAO, this%OnsiteAO,&
+        & this%LrGammaAO, this%LrGammaDeriv, this%LrOnsiteAO, optionERI=.false.)
 
     ! get Hxc kernel -> (\mu,\nu|f_{Hxc}|\tau,\gam)
     call getHxcKernel(this%getDenseAO, over, this%overSqr, this%GammaAO, this%SpinAO,&

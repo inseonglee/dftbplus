@@ -18,17 +18,21 @@ module dftbp_reks_reksen
   use dftbp_common_environment, only : globalTimers, TEnvironment
   use dftbp_common_globalenv, only : stdOut
   use dftbp_dftb_energytypes, only : TEnergies
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_periodic, only : TNeighbourList
+  use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_sparse2dense, only : unpackHS
   use dftbp_elecsolvers_elecsolvers, only: TElectronicSolver
   use dftbp_io_message, only : error
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_eigensolver, only : heev
   use dftbp_math_matrixops, only : adjointLowerTriangle
-  use dftbp_reks_rekscommon, only : getFactor, getTwoIndices, matAO2MO
+  use dftbp_reks_rekscommon, only : getFactor, getTwoIndices, matAO2MO,&
+      & getFullLongRangePars
   use dftbp_reks_reksio, only : printReksSSRInfo
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
+  use dftbp_type_orbitals, only : TOrbitals
 
   implicit none
 
@@ -300,15 +304,21 @@ module dftbp_reks_reksen
 
 
   !> Solve secular equation with coupling element between SA-REKS states
-  subroutine solveSecularEqn(env, denseDesc, neighbourList, &
-      & nNeighbourSK, iSparseStart, img2CentCell, electronicSolver, &
-      & eigenvecs, this)
+  subroutine solveSecularEqn(env, denseDesc, hybridXc, orb, neighbourList, &
+      & nNeighbourSK, iSparseStart, img2CentCell, species, electronicSolver, &
+      & eigenvecs, spinW, onSiteElements, this)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
+
+    !> Range separation contributions
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
 
     !> neighbours to atoms
     type(TNeighbourList), intent(in) :: neighbourList
@@ -322,16 +332,26 @@ module dftbp_reks_reksen
     !> map from image atom to real atoms
     integer, intent(in) :: img2CentCell(:)
 
+    !> list of all atomic species
+    integer, intent(in) :: species(:)
+
     !> Electronic solver information
     type(TElectronicSolver), intent(inout) :: electronicSolver
 
     !> Eigenvectors on eixt
     real(dp), intent(in) :: eigenvecs(:,:,:)
 
+    !> spin constants
+    real(dp), intent(in) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
     real(dp), allocatable :: Wab(:,:)
+    real(dp), allocatable :: ERI(:,:)
     real(dp), allocatable :: StateCoup(:,:)
     real(dp), allocatable :: tmpState(:,:)
     real(dp), allocatable :: tmpEigen(:)
@@ -357,7 +377,12 @@ module dftbp_reks_reksen
     case (reksTypes%ssr22)
       call getStateCoup22_(Wab, this%FONs, StateCoup)
     case (reksTypes%ssr44)
-      call error("SSR(4,4) is not implemented yet")
+      allocate(ERI(nActPair,nActPair))
+      call getERI_(env, denseDesc, hybridXc, orb, neighbourList, nNeighbourSK, &
+          & iSparseStart, img2CentCell, species, eigenvecs(:,:,1), spinW, &
+          & onSiteElements, this%hamSqrL, this%hamSpL, this%overSqr, this%weight, &
+          & this%fillingL, this%getAtomIndex, this%Nc, this%Na, this%Lpaired, &
+          & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, ERI)
     end select
 
     ! diagonalize the state energies
@@ -384,7 +409,7 @@ module dftbp_reks_reksen
     end if
 
     ! print state energies and couplings
-    call printReksSSRInfo(this, Wab, tmpEn, StateCoup)
+    call printReksSSRInfo(this, Wab, ERI, tmpEn, StateCoup)
 
   end subroutine solveSecularEqn
 
@@ -1627,6 +1652,530 @@ module dftbp_reks_reksen
     end do
 
   end subroutine getLagrangians_
+
+
+  !> Calculate electron repulsion integrals (ERI) for 3 or 4 indices
+  subroutine getERI_(env, denseDesc, hybridXc, orb, neighbourList, nNeighbourSK, &
+      & iSparseStart, img2CentCell, species, eigenvecs, spinW, onSiteElements, &
+      & hamSqrL, hamSpL, overSqr, weight, fillingL, getAtomIndex, Nc, Na, Lpaired, &
+      & isOnsite, isHybridXc, isRS_OnsCorr, ERI)
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Dense matrix descriptor
+    type(TDenseDescr), intent(in) :: denseDesc
+
+    !> Range separation contributions
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> neighbours to atoms
+    type(TNeighbourList), intent(in) :: neighbourList
+
+    !> Number of atomic neighbours
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Index for atomic blocks in sparse data
+    integer, intent(in) :: iSparseStart(:,:)
+
+    !> map from image atom to real atoms
+    integer, intent(in) :: img2CentCell(:)
+
+    !> list of all atomic species
+    integer, intent(in) :: species(:)
+
+    !> Eigenvectors on eixt
+    real(dp), intent(in) :: eigenvecs(:,:)
+
+    !> spin constants
+    real(dp), intent(in) :: spinW(:,:,:)
+
+    !> Correction to energy from on-site matrix elements
+    real(dp), intent(in) :: onSiteElements(:,:,:,:)
+
+    !> Dense Hamiltonian matrix for each microstate
+    real(dp), allocatable, intent(in) :: hamSqrL(:,:,:,:)
+
+    !> Sparse Hamiltonian matrix for each microstate
+    real(dp), allocatable, intent(in) :: hamSpL(:,:,:)
+
+    !> Dense overlap matrix
+    real(dp), intent(in) :: overSqr(:,:)
+
+    !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
+    real(dp), intent(in) :: weight(:)
+
+    !> Filling for each microstate
+    real(dp), intent(in) :: fillingL(:,:,:)
+
+    !> get atom index from AO index
+    integer, intent(in) :: getAtomIndex(:)
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Number of active orbitals
+    integer, intent(in) :: Na
+
+    !> Number of spin-paired microstates
+    integer, intent(in) :: Lpaired
+
+    !> Are on-site corrections being used?
+    logical, intent(in) :: isOnsite
+
+    !> Whether to run a range separated calculation
+    logical, intent(in) :: isHybridXc
+
+    !> Whether to run onsite correction with range-separated functional
+    logical, intent(in) :: isRS_OnsCorr
+
+    !> electron repulsion integrals within active space (4,4); ab ac ad bc bd cd
+    real(dp), intent(inout) :: ERI(:,:)
+
+    type(TScc), allocatable :: sccCalc ! never allocated
+
+    real(dp), allocatable :: tmpMat(:,:)
+    real(dp), allocatable :: auxRmat(:,:)
+    real(dp), allocatable :: tmpHamL(:,:,:)
+
+    real(dp), allocatable :: auxRhalf_fr(:,:)
+    real(dp), allocatable :: auxZhalf_fr(:,:)
+    real(dp), allocatable :: tmpHxc_fr(:)
+
+    real(dp), allocatable :: auxRhalf_lr(:,:)
+    real(dp), allocatable :: auxZhalf_lr(:,:)
+    real(dp), allocatable :: tmpHxc_lr(:)
+
+    real(dp), allocatable :: SpinAO(:,:)
+    real(dp), allocatable :: LrGammaAO(:,:)
+    real(dp), allocatable :: OnsiteAO(:,:,:,:)
+    real(dp), allocatable :: LrOnsiteAO(:,:,:)
+
+    ! Following three variables are not used, just defined
+    real(dp), allocatable :: GammaAO(:,:)
+    real(dp), allocatable :: GammaDeriv(:,:,:)
+    real(dp), allocatable :: LrGammaDeriv(:,:,:)
+
+    real(dp) :: tmp22!, tmp11
+    integer :: nOrbHalf, nOrb, nSpin, nActPair, Lmax
+    integer :: ii, jj, mu, nu, tau, gam
+    integer :: ia, ib, ist, ja, jb, jst, kst, iL
+
+    real(dp) :: tmpS1, tmpS2, tmpS3, tmpS4
+    real(dp) :: tmpL1, tmpL2, tmpL3, tmpL4
+
+    real(dp) :: tmpO1s, tmpO2s, tmpO3s, tmpO4s
+    real(dp) :: tmpO1d, tmpO2d, tmpO3d, tmpO4d
+    real(dp) :: tmpvalue1s, tmpvalue1d
+    integer :: kap
+
+    nSpin = size(fillingL,dim=2)
+    Lmax = size(fillingL,dim=3)
+    nOrb = size(eigenvecs,dim=1)
+    nOrbHalf = nOrb * (nOrb + 1) / 2
+    nActPair = Na * (Na - 1) / 2
+
+    allocate(tmpMat(nOrb,nOrb))
+    allocate(auxRmat(nOrb,nOrb))
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
+      allocate(tmpHamL(nOrb,nOrb,Lmax))
+    end if
+
+    allocate(auxRhalf_fr(nOrbHalf,3))
+    allocate(auxZhalf_fr(nOrbHalf,3))
+    allocate(tmpHxc_fr(nOrbHalf))
+
+    if (isHybridXc .or. isRS_OnsCorr) then
+      allocate(auxRhalf_lr(nOrbHalf,3))
+      allocate(auxZhalf_lr(nOrbHalf,3))
+      allocate(tmpHxc_lr(nOrbHalf))
+    end if
+
+    ! Here we use temporary variables (e.g. SpinAO) instead of original
+    ! defined variable (e.g. this%SpinAO) because they can be used for
+    ! gradient calculation
+    allocate(SpinAO(nOrb,nOrb))
+    if (isOnsite) then
+      allocate(OnsiteAO(nOrb,nOrb,nSpin,2))
+    end if
+    if (isHybridXc) then
+      allocate(LrGammaAO(nOrb,nOrb))
+    end if
+    if (isRS_OnsCorr) then
+      allocate(LrOnsiteAO(nOrb,nOrb,2))
+    end if
+
+    ! get spinW, lr-gamma, on-site constants
+    call getFullLongRangePars(env, sccCalc, hybridXc, orb, species,&
+        & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart,&
+        & spinW, onSiteElements, getAtomIndex, isOnsite, isHybridXc,&
+        & isRS_OnsCorr, GammaAO, GammaDeriv, SpinAO, OnsiteAO,&
+        & LrGammaAO, LrGammaDeriv, LrOnsiteAO, optionERI=.true.)
+
+    ! Calculate auxiliary R matrices with half dense form
+    kst = 1
+    auxRhalf_fr(:,:) = 0.0_dp
+    if (isHybridXc .or. isRS_OnsCorr) then
+      auxRhalf_lr(:,:) = 0.0_dp
+    end if
+
+    do ist = 1, nActPair
+      call getTwoIndices(Na, ist, ia, ib, 1)
+      do jst = 1, nActPair
+        call getTwoIndices(Na, jst, ja, jb, 1)
+
+        if (ist + jst == nActPair + 1) then
+          if (ist < jst) then
+            cycle
+          end if
+
+          ! kst = 1; ist = 4(bc), jst = 3(ad)
+          ! kst = 2; ist = 5(bd), jst = 2(ac)
+          ! kst = 3; ist = 6(cd), jst = 1(ab)
+          auxRmat(:,:) = 0.0_dp
+          do mu = 1, nOrb
+            do nu = 1, nOrb
+              auxRmat(mu,nu) = eigenvecs(mu,Nc+ja) * eigenvecs(nu,Nc+ib)
+            end do
+          end do
+
+          tmpMat(:,:) = auxRmat(:,:) + transpose(auxRmat(:,:))
+          do mu = 1, nOrb
+            tmpMat(mu,mu) = auxRmat(mu,mu)
+          end do
+          do ii = 1, nOrbHalf
+            call getTwoIndices(nOrb, ii, mu, nu, 2)
+            auxRhalf_fr(ii,kst) = tmpMat(mu,nu)
+          end do
+
+          if (isHybridXc .or. isRS_OnsCorr) then
+
+            auxRmat(:,:) = 0.0_dp
+            do mu = 1, nOrb
+              do nu = 1, nOrb
+                auxRmat(mu,nu) = eigenvecs(mu,Nc+ia) * eigenvecs(nu,Nc+ib)
+              end do
+            end do
+
+            tmpMat(:,:) = auxRmat(:,:) + transpose(auxRmat(:,:))
+            do mu = 1, nOrb
+              tmpMat(mu,mu) = auxRmat(mu,mu)
+            end do
+            do ii = 1, nOrbHalf
+              call getTwoIndices(nOrb, ii, mu, nu, 2)
+              auxRhalf_lr(ii,kst) = tmpMat(mu,nu)
+            end do
+
+          end if
+
+          kst = kst + 1
+        end if
+
+      end do
+    end do
+    deallocate(auxRmat)
+
+    ! Calculate auxiliary Z matrices from Hxc kernel and eigenvectors
+    ! Note that the full-range and long-range parts are treated separately
+    ! and the full-range gamma does not contribute the ERI term
+
+    ! zeroing for ZmatL
+    auxZhalf_fr(:,:) = 0.0_dp
+    if (isHybridXc .or. isRS_OnsCorr) then
+      auxZhalf_lr(:,:) = 0.0_dp
+    end if
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(mu,nu,tau,gam,tmp22, &
+!$OMP& tmpHxc_fr,tmpHxc_lr,tmpS1,tmpS2,tmpS3,tmpS4,tmpvalue1s, &
+!$OMP& tmpvalue1d,tmpL1,tmpL2,tmpL3,tmpL4,tmpO1s,tmpO1d,tmpO2s, &
+!$OMP& tmpO2d,tmpO3s,tmpO3d,tmpO4s,tmpO4d) SCHEDULE(RUNTIME)
+    do jj = 1, nOrbHalf
+
+      call getTwoIndices(nOrb, jj, tau, gam, 2)
+
+      tmpHxc_fr(:) = 0.0_dp
+      if (isHybridXc .or. isRS_OnsCorr) then
+        tmpHxc_lr(:) = 0.0_dp
+      end if
+      do ii = 1, nOrbHalf
+
+        !call getTwoIndices(nOrb, jj, tau, gam, 2)
+        tmp22 = ( real(2.0_dp*nOrb+3.0_dp, dp) - sqrt( (2.0_dp*nOrb+ &
+            & 3.0_dp)**2.0_dp - 8.0_dp*(nOrb+ii) ) )/2.0_dp
+        mu = int( real(tmp22, dp) )
+        nu = mu**2/2 - mu/2 - nOrb*mu + nOrb + ii
+
+        ! spin term
+        tmpS1 = SpinAO(mu,tau)
+        tmpS2 = SpinAO(nu,tau)
+        tmpS3 = SpinAO(mu,gam)
+        tmpS4 = SpinAO(nu,gam)
+
+        tmpHxc_fr(ii) = tmpHxc_fr(ii) - 0.5_dp * overSqr(mu,nu) * &
+            & overSqr(tau,gam) * (tmpS1+tmpS2+tmpS3+tmpS4)
+
+        ! LC term
+        if (isHybridXc) then
+
+          tmpL1 = LrGammaAO(mu,tau)
+          tmpL2 = LrGammaAO(mu,gam)
+          tmpL3 = LrGammaAO(nu,tau)
+          tmpL4 = LrGammaAO(nu,gam)
+          tmpvalue1s = 0.25_dp * overSqr(mu,nu) * &
+              & overSqr(tau,gam) * (tmpL1+tmpL2+tmpL3+tmpL4)
+
+          tmpHxc_lr(ii) = tmpHxc_lr(ii) + tmpvalue1s
+
+        end if
+
+        ! full-range onsite terms
+        if (isOnsite) then
+
+          tmpO1s = OnsiteAO(mu,tau,1,1)
+          tmpO2s = OnsiteAO(nu,gam,1,1)
+          tmpO3s = OnsiteAO(mu,gam,1,1)
+          tmpO4s = OnsiteAO(nu,tau,1,1)
+
+          tmpvalue1s = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1s + tmpO2s) &
+              & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3s + tmpO4s)
+
+          tmpO1d = OnsiteAO(mu,tau,2,1)
+          tmpO2d = OnsiteAO(nu,gam,2,1)
+          tmpO3d = OnsiteAO(mu,gam,2,1)
+          tmpO4d = OnsiteAO(nu,tau,2,1)
+
+          tmpvalue1d = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1d + tmpO2d) &
+              & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3d + tmpO4d)
+
+          tmpHxc_fr(ii) = tmpHxc_fr(ii) + 0.25_dp * (tmpvalue1d - tmpvalue1s)
+
+          tmpvalue1s = 0.0_dp
+          tmpvalue1d = 0.0_dp
+          if (mu == tau) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,gam) &
+                  & * OnsiteAO(mu,kap,1,1)
+              tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,gam) &
+                  & * OnsiteAO(mu,kap,2,1)
+            end do
+          end if
+          if (mu == gam) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,tau) &
+                  & * OnsiteAO(mu,kap,1,1)
+              tmpvalue1d = tmpvalue1d + overSqr(kap,nu) * overSqr(kap,tau) &
+                  & * OnsiteAO(mu,kap,2,1)
+            end do
+          end if
+          if (nu == tau) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,gam) &
+                  & * OnsiteAO(nu,kap,1,1)
+              tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,gam) &
+                  & * OnsiteAO(nu,kap,2,1)
+            end do
+          end if
+          if (nu == gam) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                  & * OnsiteAO(nu,kap,1,1)
+              tmpvalue1d = tmpvalue1d + overSqr(kap,mu) * overSqr(kap,tau) &
+                  & * OnsiteAO(nu,kap,2,1)
+            end do
+          end if
+
+          tmpHxc_fr(ii) = tmpHxc_fr(ii) + 0.25_dp * (tmpvalue1d - tmpvalue1s)
+
+          tmpO1s = OnsiteAO(mu,tau,1,2)
+          tmpO2s = OnsiteAO(nu,tau,1,2)
+          tmpO3s = OnsiteAO(mu,gam,1,2)
+          tmpO4s = OnsiteAO(nu,gam,1,2)
+
+          tmpO1d = OnsiteAO(mu,tau,2,2)
+          tmpO2d = OnsiteAO(nu,tau,2,2)
+          tmpO3d = OnsiteAO(mu,gam,2,2)
+          tmpO4d = OnsiteAO(nu,gam,2,2)
+
+          tmpvalue1s = overSqr(mu,nu) * overSqr(tau,gam) * &
+              & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+          tmpvalue1d = overSqr(mu,nu) * overSqr(tau,gam) * &
+              & (tmpO1d + tmpO2d + tmpO3d + tmpO4d)
+
+          tmpHxc_fr(ii) = tmpHxc_fr(ii) - (tmpvalue1d - tmpvalue1s)
+
+        end if
+
+        ! long-range onsite terms
+        if (isRS_OnsCorr) then
+
+          tmpO1s = LrOnsiteAO(mu,tau,1)
+          tmpO2s = LrOnsiteAO(nu,gam,1)
+          tmpO3s = LrOnsiteAO(mu,gam,1)
+          tmpO4s = LrOnsiteAO(nu,tau,1)
+
+          tmpvalue1s = overSqr(mu,gam) * overSqr(nu,tau) * (tmpO1s + tmpO2s) &
+              & + overSqr(mu,tau) * overSqr(nu,gam) * (tmpO3s + tmpO4s)
+
+          tmpHxc_lr(ii) = tmpHxc_lr(ii) + 0.25_dp * tmpvalue1s
+
+          tmpvalue1s = 0.0_dp
+          if (mu == tau) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,gam) &
+                  & * LrOnsiteAO(mu,kap,1)
+            end do
+          end if
+          if (mu == gam) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,nu) * overSqr(kap,tau) &
+                  & * LrOnsiteAO(mu,kap,1)
+            end do
+          end if
+          if (nu == tau) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,gam) &
+                  & * LrOnsiteAO(nu,kap,1)
+            end do
+          end if
+          if (nu == gam) then
+            do kap = 1, nOrb
+              tmpvalue1s = tmpvalue1s + overSqr(kap,mu) * overSqr(kap,tau) &
+                  & * LrOnsiteAO(nu,kap,1)
+            end do
+          end if
+
+          tmpHxc_lr(ii) = tmpHxc_lr(ii) + 0.25_dp * tmpvalue1s
+
+          tmpO1s = LrOnsiteAO(mu,tau,2)
+          tmpO2s = LrOnsiteAO(mu,gam,2)
+          tmpO3s = LrOnsiteAO(nu,tau,2)
+          tmpO4s = LrOnsiteAO(nu,gam,2)
+
+          tmpvalue1s = overSqr(mu,nu) * overSqr(tau,gam) * &
+              & (tmpO1s + tmpO2s + tmpO3s + tmpO4s)
+
+          tmpHxc_lr(ii) = tmpHxc_lr(ii) - tmpvalue1s
+
+        end if
+
+      end do
+
+      ! calculate the ZmatL
+      do kst = 1, 3
+        auxZhalf_fr(jj,kst) = sum(auxRhalf_fr(:,kst)*tmpHxc_fr)
+        if (isHybridXc .or. isRS_OnsCorr) then
+          auxZhalf_lr(jj,kst) = sum(auxRhalf_lr(:,kst)*tmpHxc_lr)
+        end if
+      end do
+
+    end do
+!$OMP END PARALLEL DO
+
+    ! Calculate ERIs from auxiliary Z matrices and eigenvectors
+    kst = 1
+    ERI(:,:) = 0.0_dp
+    do ist = 1, nActPair
+      call getTwoIndices(Na, ist, ia, ib, 1)
+      do jst = 1, nActPair
+        call getTwoIndices(Na, jst, ja, jb, 1)
+
+        if (ist + jst == 7) then
+          ! This condition is 4eri
+          if (ist < jst) then
+            cycle
+          end if
+        else
+          ! This condition is 3eri
+          cycle
+        end if
+
+        do jj = 1, nOrbHalf
+          call getTwoIndices(nOrb, jj, tau, gam, 2)
+
+          ERI(ist,jst) = ERI(ist,jst) + auxZhalf_fr(jj,kst) * eigenvecs(tau,Nc+ia) * eigenvecs(gam,Nc+jb)
+          if (isHybridXc .or. isRS_OnsCorr) then
+            ERI(ist,jst) = ERI(ist,jst) + auxZhalf_lr(jj,kst) * eigenvecs(tau,Nc+ja) * eigenvecs(gam,Nc+jb)
+          end if
+          if (tau /= gam) then
+            ERI(ist,jst) = ERI(ist,jst) + auxZhalf_fr(jj,kst) * eigenvecs(tau,Nc+jb) * eigenvecs(gam,Nc+ia)
+            if (isHybridXc .or. isRS_OnsCorr) then
+              ERI(ist,jst) = ERI(ist,jst) + auxZhalf_lr(jj,kst) * eigenvecs(tau,Nc+jb) * eigenvecs(gam,Nc+ja)
+            end if
+          end if
+        end do
+        kst = kst + 1
+
+      enddo
+    enddo
+    ERI(1,6) = ERI(6,1)
+    ERI(2,5) = ERI(5,2)
+    ERI(3,4) = ERI(4,3)
+
+    ! 3ERIs can be computed from Hamiltonians for each microstate
+    if (.not. (isHybridXc .or. isRS_OnsCorr)) then
+      do iL = 1, Lmax
+        tmpMat(:,:) = 0.0_dp
+        ! hamSpL has (my_ud) component
+        call env%globalTimer%startTimer(globalTimers%sparseToDense)
+        call unpackHS(tmpMat, hamSpL(:,1,iL), &
+            & neighbourList%iNeighbour, nNeighbourSK, &
+            & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        call env%globalTimer%stopTimer(globalTimers%sparseToDense)
+        call adjointLowerTriangle(tmpMat)
+        ! convert the hamiltonians from AO basis to MO basis
+        call matAO2MO(tmpMat, eigenvecs)
+        tmpHamL(:,:,iL) = tmpMat(:,:)
+      end do
+      ERI(1,2) = tmpHamL(Nc+3, Nc+2, 22) - tmpHamL(Nc+3, Nc+2, 23)
+      ERI(1,3) = tmpHamL(Nc+4, Nc+2, 6) - tmpHamL(Nc+4, Nc+2, 7)
+      ERI(1,4) = tmpHamL(Nc+3, Nc+1, 10) - tmpHamL(Nc+3, Nc+1, 11)
+      ERI(1,5) = tmpHamL(Nc+4, Nc+1, 18) - tmpHamL(Nc+4, Nc+1, 19)
+      ERI(2,3) = tmpHamL(Nc+3, Nc+4, 22) - tmpHamL(Nc+3, Nc+4, 23)
+!      ERI(2,3) = tmpHamL(Nc+4, Nc+3, 6) - tmpHamL(Nc+4, Nc+3, 7)
+      ERI(2,4) = tmpHamL(Nc+1, Nc+2, 21) - tmpHamL(Nc+1, Nc+2, 23)
+!      ERI(2,4) = tmpHamL(Nc+2, Nc+1, 9) - tmpHamL(Nc+2, Nc+1, 11)
+      ERI(2,6) = tmpHamL(Nc+1, Nc+4, 21) - tmpHamL(Nc+1, Nc+4, 23)
+      ERI(3,5) = tmpHamL(Nc+1, Nc+2, 5) - tmpHamL(Nc+1, Nc+2, 7)
+!      ERI(3,5) = tmpHamL(Nc+2, Nc+1, 17) - tmpHamL(Nc+2, Nc+1, 19)
+      ERI(3,6) = tmpHamL(Nc+1, Nc+3, 5) - tmpHamL(Nc+1, Nc+3, 7)
+      ERI(4,5) = tmpHamL(Nc+3, Nc+4, 10) - tmpHamL(Nc+3, Nc+4, 11)
+!      ERI(4,5) = tmpHamL(Nc+4, Nc+3, 18) - tmpHamL(Nc+4, Nc+3, 19)
+      ERI(4,6) = tmpHamL(Nc+2, Nc+4, 9) - tmpHamL(Nc+2, Nc+4, 11)
+      ERI(5,6) = tmpHamL(Nc+2, Nc+3, 17) - tmpHamL(Nc+2, Nc+3, 19)
+    else
+      ERI(1,2) = hamSqrL(Nc+3, Nc+2, 1, 22) - hamSqrL(Nc+3, Nc+2, 1, 23)
+      ERI(1,3) = hamSqrL(Nc+4, Nc+2, 1, 6) - hamSqrL(Nc+4, Nc+2, 1, 7)
+      ERI(1,4) = hamSqrL(Nc+3, Nc+1, 1, 10) - hamSqrL(Nc+3, Nc+1, 1, 11)
+      ERI(1,5) = hamSqrL(Nc+4, Nc+1, 1, 18) - hamSqrL(Nc+4, Nc+1, 1, 19)
+      ERI(2,3) = hamSqrL(Nc+3, Nc+4, 1, 22) - hamSqrL(Nc+3, Nc+4, 1, 23)
+!      ERI(2,3) = hamSqrL(Nc+4, Nc+3, 1, 6) - hamSqrL(Nc+4, Nc+3, 1, 7)
+      ERI(2,4) = hamSqrL(Nc+1, Nc+2, 1, 21) - hamSqrL(Nc+1, Nc+2, 1, 23)
+!      ERI(2,4) = hamSqrL(Nc+2, Nc+1, 1, 9) - hamSqrL(Nc+2, Nc+1, 1, 11)
+      ERI(2,6) = hamSqrL(Nc+1, Nc+4, 1, 21) - hamSqrL(Nc+1, Nc+4, 1, 23)
+      ERI(3,5) = hamSqrL(Nc+1, Nc+2, 1, 5) - hamSqrL(Nc+1, Nc+2, 1, 7)
+!      ERI(3,5) = hamSqrL(Nc+2, Nc+1, 1, 17) - hamSqrL(Nc+2, Nc+1, 1, 19)
+      ERI(3,6) = hamSqrL(Nc+1, Nc+3, 1, 5) - hamSqrL(Nc+1, Nc+3, 1, 7)
+      ERI(4,5) = hamSqrL(Nc+3, Nc+4, 1, 10) - hamSqrL(Nc+3, Nc+4, 1, 11)
+!      ERI(4,5) = hamSqrL(Nc+4, Nc+3, 1, 18) - hamSqrL(Nc+4, Nc+3, 1, 19)
+      ERI(4,6) = hamSqrL(Nc+2, Nc+4, 1, 9) - hamSqrL(Nc+2, Nc+4, 1, 11)
+      ERI(5,6) = hamSqrL(Nc+2, Nc+3, 1, 17) - hamSqrL(Nc+2, Nc+3, 1, 19)
+    end if
+    ERI(2,1) = ERI(1,2)
+    ERI(3,1) = ERI(1,3)
+    ERI(4,1) = ERI(1,4)
+    ERI(5,1) = ERI(1,5)
+    ERI(3,2) = ERI(2,3)
+    ERI(4,2) = ERI(2,4)
+    ERI(6,2) = ERI(2,6)
+    ERI(5,3) = ERI(3,5)
+    ERI(6,3) = ERI(3,6)
+    ERI(5,4) = ERI(4,5)
+    ERI(6,4) = ERI(4,6)
+    ERI(6,5) = ERI(5,6)
+
+  end subroutine getERI_
 
 
   !> calculate state-interaction terms between SA-REKS states in (2,2) case
