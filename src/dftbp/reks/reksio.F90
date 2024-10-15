@@ -825,6 +825,10 @@ module dftbp_reks_reksio
     nActPair = size(Wab,dim=1)
     nstates = size(energy,dim=1)
 
+    indPPS = 0; indOSS1 = 0; indOSS2 = 0
+    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
+    indDSPS = 0; indDES1 = 0; indDES2 = 0
+
     if (tAllStates) then
       indPPS = 1; indOSS1 = 2; indOSS2 = 3
       indOSS3 = 4; indOSS4 = 5; indDOSS = 6

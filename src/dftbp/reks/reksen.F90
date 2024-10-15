@@ -383,6 +383,8 @@ module dftbp_reks_reksen
           & onSiteElements, this%hamSqrL, this%hamSpL, this%overSqr, this%weight, &
           & this%fillingL, this%getAtomIndex, this%Nc, this%Na, this%Lpaired, &
           & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, ERI)
+      call getStateCoup44_(Wab, ERI, this%enLtot, this%FONs, this%Efunction, &
+          & this%tAllStates, StateCoup)
     end select
 
     ! diagonalize the state energies
@@ -2109,9 +2111,6 @@ module dftbp_reks_reksen
 
       enddo
     enddo
-    ERI(1,6) = ERI(6,1)
-    ERI(2,5) = ERI(5,2)
-    ERI(3,4) = ERI(4,3)
 
     ! 3ERIs can be computed from Hamiltonians for each microstate
     if (.not. (isHybridXc .or. isRS_OnsCorr)) then
@@ -2128,52 +2127,42 @@ module dftbp_reks_reksen
         call matAO2MO(tmpMat, eigenvecs)
         tmpHamL(:,:,iL) = tmpMat(:,:)
       end do
-      ERI(1,2) = tmpHamL(Nc+3, Nc+2, 22) - tmpHamL(Nc+3, Nc+2, 23)
-      ERI(1,3) = tmpHamL(Nc+4, Nc+2, 6) - tmpHamL(Nc+4, Nc+2, 7)
-      ERI(1,4) = tmpHamL(Nc+3, Nc+1, 10) - tmpHamL(Nc+3, Nc+1, 11)
-      ERI(1,5) = tmpHamL(Nc+4, Nc+1, 18) - tmpHamL(Nc+4, Nc+1, 19)
-      ERI(2,3) = tmpHamL(Nc+3, Nc+4, 22) - tmpHamL(Nc+3, Nc+4, 23)
-!      ERI(2,3) = tmpHamL(Nc+4, Nc+3, 6) - tmpHamL(Nc+4, Nc+3, 7)
-      ERI(2,4) = tmpHamL(Nc+1, Nc+2, 21) - tmpHamL(Nc+1, Nc+2, 23)
-!      ERI(2,4) = tmpHamL(Nc+2, Nc+1, 9) - tmpHamL(Nc+2, Nc+1, 11)
-      ERI(2,6) = tmpHamL(Nc+1, Nc+4, 21) - tmpHamL(Nc+1, Nc+4, 23)
-      ERI(3,5) = tmpHamL(Nc+1, Nc+2, 5) - tmpHamL(Nc+1, Nc+2, 7)
-!      ERI(3,5) = tmpHamL(Nc+2, Nc+1, 17) - tmpHamL(Nc+2, Nc+1, 19)
-      ERI(3,6) = tmpHamL(Nc+1, Nc+3, 5) - tmpHamL(Nc+1, Nc+3, 7)
-      ERI(4,5) = tmpHamL(Nc+3, Nc+4, 10) - tmpHamL(Nc+3, Nc+4, 11)
-!      ERI(4,5) = tmpHamL(Nc+4, Nc+3, 18) - tmpHamL(Nc+4, Nc+3, 19)
-      ERI(4,6) = tmpHamL(Nc+2, Nc+4, 9) - tmpHamL(Nc+2, Nc+4, 11)
-      ERI(5,6) = tmpHamL(Nc+2, Nc+3, 17) - tmpHamL(Nc+2, Nc+3, 19)
+      ERI(2,1) = tmpHamL(Nc+3, Nc+2, 22) - tmpHamL(Nc+3, Nc+2, 23)
+      ERI(3,1) = tmpHamL(Nc+4, Nc+2, 6) - tmpHamL(Nc+4, Nc+2, 7)
+      ERI(4,1) = tmpHamL(Nc+3, Nc+1, 10) - tmpHamL(Nc+3, Nc+1, 11)
+      ERI(5,1) = tmpHamL(Nc+4, Nc+1, 18) - tmpHamL(Nc+4, Nc+1, 19)
+      ERI(3,2) = tmpHamL(Nc+3, Nc+4, 22) - tmpHamL(Nc+3, Nc+4, 23)
+!      ERI(3,2) = tmpHamL(Nc+4, Nc+3, 6) - tmpHamL(Nc+4, Nc+3, 7)
+      ERI(4,2) = tmpHamL(Nc+1, Nc+2, 21) - tmpHamL(Nc+1, Nc+2, 23)
+!      ERI(4,2) = tmpHamL(Nc+2, Nc+1, 9) - tmpHamL(Nc+2, Nc+1, 11)
+      ERI(6,2) = tmpHamL(Nc+1, Nc+4, 21) - tmpHamL(Nc+1, Nc+4, 23)
+      ERI(5,3) = tmpHamL(Nc+1, Nc+2, 5) - tmpHamL(Nc+1, Nc+2, 7)
+!      ERI(5,3) = tmpHamL(Nc+2, Nc+1, 17) - tmpHamL(Nc+2, Nc+1, 19)
+      ERI(6,3) = tmpHamL(Nc+1, Nc+3, 5) - tmpHamL(Nc+1, Nc+3, 7)
+      ERI(5,4) = tmpHamL(Nc+3, Nc+4, 10) - tmpHamL(Nc+3, Nc+4, 11)
+!      ERI(5,4) = tmpHamL(Nc+4, Nc+3, 18) - tmpHamL(Nc+4, Nc+3, 19)
+      ERI(6,4) = tmpHamL(Nc+2, Nc+4, 9) - tmpHamL(Nc+2, Nc+4, 11)
+      ERI(6,5) = tmpHamL(Nc+2, Nc+3, 17) - tmpHamL(Nc+2, Nc+3, 19)
     else
-      ERI(1,2) = hamSqrL(Nc+3, Nc+2, 1, 22) - hamSqrL(Nc+3, Nc+2, 1, 23)
-      ERI(1,3) = hamSqrL(Nc+4, Nc+2, 1, 6) - hamSqrL(Nc+4, Nc+2, 1, 7)
-      ERI(1,4) = hamSqrL(Nc+3, Nc+1, 1, 10) - hamSqrL(Nc+3, Nc+1, 1, 11)
-      ERI(1,5) = hamSqrL(Nc+4, Nc+1, 1, 18) - hamSqrL(Nc+4, Nc+1, 1, 19)
-      ERI(2,3) = hamSqrL(Nc+3, Nc+4, 1, 22) - hamSqrL(Nc+3, Nc+4, 1, 23)
-!      ERI(2,3) = hamSqrL(Nc+4, Nc+3, 1, 6) - hamSqrL(Nc+4, Nc+3, 1, 7)
-      ERI(2,4) = hamSqrL(Nc+1, Nc+2, 1, 21) - hamSqrL(Nc+1, Nc+2, 1, 23)
-!      ERI(2,4) = hamSqrL(Nc+2, Nc+1, 1, 9) - hamSqrL(Nc+2, Nc+1, 1, 11)
-      ERI(2,6) = hamSqrL(Nc+1, Nc+4, 1, 21) - hamSqrL(Nc+1, Nc+4, 1, 23)
-      ERI(3,5) = hamSqrL(Nc+1, Nc+2, 1, 5) - hamSqrL(Nc+1, Nc+2, 1, 7)
-!      ERI(3,5) = hamSqrL(Nc+2, Nc+1, 1, 17) - hamSqrL(Nc+2, Nc+1, 1, 19)
-      ERI(3,6) = hamSqrL(Nc+1, Nc+3, 1, 5) - hamSqrL(Nc+1, Nc+3, 1, 7)
-      ERI(4,5) = hamSqrL(Nc+3, Nc+4, 1, 10) - hamSqrL(Nc+3, Nc+4, 1, 11)
-!      ERI(4,5) = hamSqrL(Nc+4, Nc+3, 1, 18) - hamSqrL(Nc+4, Nc+3, 1, 19)
-      ERI(4,6) = hamSqrL(Nc+2, Nc+4, 1, 9) - hamSqrL(Nc+2, Nc+4, 1, 11)
-      ERI(5,6) = hamSqrL(Nc+2, Nc+3, 1, 17) - hamSqrL(Nc+2, Nc+3, 1, 19)
+      ERI(2,1) = hamSqrL(Nc+3, Nc+2, 1, 22) - hamSqrL(Nc+3, Nc+2, 1, 23)
+      ERI(3,1) = hamSqrL(Nc+4, Nc+2, 1, 6) - hamSqrL(Nc+4, Nc+2, 1, 7)
+      ERI(4,1) = hamSqrL(Nc+3, Nc+1, 1, 10) - hamSqrL(Nc+3, Nc+1, 1, 11)
+      ERI(5,1) = hamSqrL(Nc+4, Nc+1, 1, 18) - hamSqrL(Nc+4, Nc+1, 1, 19)
+      ERI(3,2) = hamSqrL(Nc+3, Nc+4, 1, 22) - hamSqrL(Nc+3, Nc+4, 1, 23)
+!      ERI(3,2) = hamSqrL(Nc+4, Nc+3, 1, 6) - hamSqrL(Nc+4, Nc+3, 1, 7)
+      ERI(4,2) = hamSqrL(Nc+1, Nc+2, 1, 21) - hamSqrL(Nc+1, Nc+2, 1, 23)
+!      ERI(4,2) = hamSqrL(Nc+2, Nc+1, 1, 9) - hamSqrL(Nc+2, Nc+1, 1, 11)
+      ERI(6,2) = hamSqrL(Nc+1, Nc+4, 1, 21) - hamSqrL(Nc+1, Nc+4, 1, 23)
+      ERI(5,3) = hamSqrL(Nc+1, Nc+2, 1, 5) - hamSqrL(Nc+1, Nc+2, 1, 7)
+!      ERI(5,3) = hamSqrL(Nc+2, Nc+1, 1, 17) - hamSqrL(Nc+2, Nc+1, 1, 19)
+      ERI(6,3) = hamSqrL(Nc+1, Nc+3, 1, 5) - hamSqrL(Nc+1, Nc+3, 1, 7)
+      ERI(5,4) = hamSqrL(Nc+3, Nc+4, 1, 10) - hamSqrL(Nc+3, Nc+4, 1, 11)
+!      ERI(5,4) = hamSqrL(Nc+4, Nc+3, 1, 18) - hamSqrL(Nc+4, Nc+3, 1, 19)
+      ERI(6,4) = hamSqrL(Nc+2, Nc+4, 1, 9) - hamSqrL(Nc+2, Nc+4, 1, 11)
+      ERI(6,5) = hamSqrL(Nc+2, Nc+3, 1, 17) - hamSqrL(Nc+2, Nc+3, 1, 19)
     end if
-    ERI(2,1) = ERI(1,2)
-    ERI(3,1) = ERI(1,3)
-    ERI(4,1) = ERI(1,4)
-    ERI(5,1) = ERI(1,5)
-    ERI(3,2) = ERI(2,3)
-    ERI(4,2) = ERI(2,4)
-    ERI(6,2) = ERI(2,6)
-    ERI(5,3) = ERI(3,5)
-    ERI(6,3) = ERI(3,6)
-    ERI(5,4) = ERI(4,5)
-    ERI(6,4) = ERI(4,6)
-    ERI(6,5) = ERI(5,6)
+
+    call adjointLowerTriangle(ERI)
 
   end subroutine getERI_
 
@@ -2197,15 +2186,334 @@ module dftbp_reks_reksen
     n_b = FONs(2,1)
     nstates = size(StateCoup,dim=1)
 
+    ! Initialize SI terms
     StateCoup(:,:) = 0.0_dp
+
+    ! <PPS|H|OSS>
     StateCoup(1,2) = sqrt(n_a) * Wab(1,1) - sqrt(n_b) * Wab(1,1)
     StateCoup(2,1) = StateCoup(1,2)
     if (nstates == 3) then
+      ! <OSS|H|DES>
       StateCoup(2,3) = sqrt(n_a) * Wab(1,1) + sqrt(n_b) * Wab(1,1)
       StateCoup(3,2) = StateCoup(2,3)
     end if
 
   end subroutine getStateCoup22_
+
+
+  !> calculate state-interaction terms between SA-REKS states in (4,4) case
+  subroutine getStateCoup44_(Wab, ERI, enLtot, FONs, Efunction, tAllStates, StateCoup)
+
+    !> converged Lagrangian values within active space
+    real(dp), intent(in) :: Wab(:,:)
+
+    !> electron repulsion integrals within active space (4,4); ab ac ad bc bd cd
+    real(dp), intent(in) :: ERI(:,:)
+
+    !> total energy for each microstate
+    real(dp), intent(in) :: enLtot(:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Decide the energy states in SA-REKS
+    logical, intent(in) :: tAllStates
+
+    !> state-interaction term between SA-REKS states
+    real(dp), intent(inout) :: StateCoup(:,:)
+
+    real(dp) :: n_a, n_b, n_c, n_d
+    real(dp) :: np_a, np_b, np_c, np_d
+    real(dp) :: mp_a, mp_b, mp_c, mp_d
+    integer :: indPPS, indOSS1, indOSS2
+    integer :: indOSS3, indOSS4, indDOSS
+    integer :: indDSPS, indDES1, indDES2
+
+    indPPS = 0; indOSS1 = 0; indOSS2 = 0
+    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
+    indDSPS = 0; indDES1 = 0; indDES2 = 0
+
+    if (tAllStates) then
+      indPPS = 1; indOSS1 = 2; indOSS2 = 3
+      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+      indDSPS = 7; indDES1 = 8; indDES2 = 9
+    else
+      indPPS = 1
+      if (Efunction == 2) then
+        indDSPS = 2
+      else if (Efunction == 3 .or. Efunction == 4) then
+        indOSS1 = 2; indOSS2 = 3
+        if (Efunction == 4) then
+          indOSS3 = 4; indOSS4 = 5
+        end if
+      end if
+    end if
+
+    n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
+    np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
+    mp_a = FONs(1,3); mp_b = FONs(2,3); mp_c = FONs(3,3); mp_d = FONs(4,3)
+
+    ! Initialize SI terms
+    StateCoup(:,:) = 0.0_dp
+
+    if (indPPS > 0) then
+
+      if (indOSS1 > 0) then
+        ! <PPS|H|OSS1>
+        StateCoup(indOSS1,indPPS) = 0.5_dp * (dsqrt(n_a*np_a) + dsqrt(n_d*np_d)) &
+            & * (dsqrt(n_b) - dsqrt(n_c)) * Wab(4,1)
+      end if
+
+      if (indOSS2 > 0) then
+        ! <PPS|H|OSS2>
+        StateCoup(indOSS2,indPPS) = 0.5_dp * (dsqrt(n_b*np_b) + dsqrt(n_c*np_c)) &
+            & * (dsqrt(n_a) - dsqrt(n_d)) * Wab(3,1)
+      end if
+
+      if (indOSS3 > 0) then
+        ! <PPS|H|OSS3>
+        StateCoup(indOSS3,indPPS) = 0.5_dp * dsqrt(mp_a) * ( dsqrt(n_a*n_b) * Wab(5,1) &
+            & - dsqrt(n_a*n_c) * ERI(4,6) + dsqrt(n_b*n_d) * ERI(1,3) ) &
+            & - 0.5_dp * dsqrt(mp_c) * ( dsqrt(n_c*n_d) * Wab(5,1) &
+            & - dsqrt(n_a*n_c) * ERI(1,3) + dsqrt(n_b*n_d) * ERI(4,6) )
+      end if
+
+      if (indOSS4 > 0) then
+        ! <PPS|H|OSS4>
+        StateCoup(indOSS4,indPPS) = 0.5_dp * dsqrt(mp_b) * ( dsqrt(n_a*n_b) * Wab(2,1) &
+            & + dsqrt(n_a*n_c) * ERI(1,4) - dsqrt(n_b*n_d) * ERI(3,6) ) &
+            & - 0.5_dp * dsqrt(mp_d) * ( dsqrt(n_c*n_d) * Wab(2,1) &
+            & + dsqrt(n_a*n_c) * ERI(3,6) - dsqrt(n_b*n_d) * ERI(1,4) )
+      end if
+
+      if (indDOSS > 0) then
+        ! <PPS|H|DOSS>
+        StateCoup(indDOSS,indPPS) = 0.5_dp * (dsqrt(n_a*n_b) + dsqrt(n_c*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(2,5)) &
+            & - 0.5_dp * (dsqrt(n_a*n_c) + dsqrt(n_b*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(1,6))
+      end if
+
+      if (indDSPS > 0) then
+        ! <PPS|H|DSPS>
+        StateCoup(indDSPS,indPPS) = 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_b) + dsqrt(n_c*n_d)) * ERI(2,5) &
+            & + 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_c) + dsqrt(n_b*n_d)) * ERI(1,6)
+      end if
+
+    end if
+
+    if (indOSS1 > 0) then
+
+      if (indOSS2 > 0) then
+        ! <OSS1|H|OSS2>
+        StateCoup(indOSS2,indOSS1) = 0.5_dp * (dsqrt(np_a*np_b) + dsqrt(np_c*np_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(1,6)) &
+            & - 0.5_dp * (dsqrt(np_a*np_c) + dsqrt(np_b*np_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(2,5))
+      end if
+
+      if (indOSS3 > 0) then
+        ! <OSS1|H|OSS3>
+        StateCoup(indOSS3,indOSS1) = 0.5_dp * dsqrt(mp_a) * ( dsqrt(np_a) * Wab(6,1) &
+            & + dsqrt(np_a) * ERI(4,5) + dsqrt(np_d) * ERI(2,3) ) &
+            & - 0.5_dp * dsqrt(mp_c) * ( dsqrt(np_d) * Wab(6,1) &
+            & - dsqrt(np_d) * ERI(4,5) - dsqrt(np_a) * ERI(2,3) )
+      end if
+
+      if (indOSS4 > 0) then
+        ! <OSS1|H|OSS4>
+        StateCoup(indOSS4,indOSS1) = - 0.5_dp * dsqrt(mp_b) * ( dsqrt(np_a) * Wab(1,1) &
+            & - dsqrt(np_a) * ERI(2,4) - dsqrt(np_d) * ERI(3,5) ) &
+            & + 0.5_dp * dsqrt(mp_d) * ( dsqrt(np_d) * Wab(1,1) &
+            & + dsqrt(np_d) * ERI(2,4) + dsqrt(np_a) * ERI(3,5) )
+      end if
+
+      if (indDOSS > 0) then
+        ! <OSS1|H|DOSS>
+        StateCoup(indDOSS,indOSS1) = (dsqrt(np_a) - dsqrt(np_d)) * Wab(3,1)
+      end if
+
+      if (indDSPS > 0) then
+        ! <OSS1|H|DSPS>
+        StateCoup(indDSPS,indOSS1) = 1.0_dp / dsqrt(3.0_dp) * (dsqrt(np_a) + dsqrt(np_d)) * (ERI(2,6) - ERI(1,5))
+      end if
+
+      if (indDES1 > 0) then
+        ! <OSS1|H|DES1>
+        StateCoup(indDES1,indOSS1) = 0.5_dp * (dsqrt(n_a*np_a) + dsqrt(n_d*np_d)) &
+            & * (dsqrt(n_b) + dsqrt(n_c)) * Wab(4,1)
+      end if
+
+      if (indDES2 > 0) then
+        ! <OSS1|H|DES2>
+        StateCoup(indDES2,indOSS1) = 0.5_dp * (dsqrt(n_d*np_a) - dsqrt(n_a*np_d)) &
+            & * (dsqrt(n_b) - dsqrt(n_c)) * Wab(4,1)
+      end if
+
+    end if
+
+    if (indOSS2 > 0) then
+
+      if (indOSS3 > 0) then
+        ! <OSS2|H|OSS3>
+        StateCoup(indOSS3,indOSS2) = - 0.5_dp * dsqrt(mp_a) * ( dsqrt(np_b) * Wab(1,1) &
+            & - dsqrt(np_b) * ERI(3,5) - dsqrt(np_c) * ERI(2,4) ) &
+            & + 0.5_dp * dsqrt(mp_c) * ( dsqrt(np_c) * Wab(1,1) &
+            & + dsqrt(np_c) * ERI(3,5) + dsqrt(np_b) * ERI(2,4) )
+      end if
+
+      if (indOSS4 > 0) then
+        ! <OSS2|H|OSS4>
+        StateCoup(indOSS4,indOSS2) = 0.5_dp * dsqrt(mp_b) * ( dsqrt(np_b) * Wab(6,1) &
+            & + dsqrt(np_b) * ERI(2,3) + dsqrt(np_c) * ERI(4,5) ) &
+            & - 0.5_dp * dsqrt(mp_d) * ( dsqrt(np_c) * Wab(6,1) &
+            & - dsqrt(np_c) * ERI(2,3) - dsqrt(np_b) * ERI(4,5) )
+      end if
+
+      if (indDOSS > 0) then
+        ! <OSS2|H|DOSS>
+        StateCoup(indDOSS,indOSS2) = (dsqrt(np_b) - dsqrt(np_c)) * Wab(4,1)
+      end if
+
+      if (indDSPS > 0) then
+        ! <OSS2|H|DSPS>
+        StateCoup(indDSPS,indOSS2) = 1.0_dp / dsqrt(3.0_dp) * (dsqrt(np_b) + dsqrt(np_c)) & 
+            & * (ERI(5,6) - ERI(1,2))
+      end if
+
+      if (indDES1 > 0) then
+        ! <OSS2|H|DES1>
+        StateCoup(indDES1,indOSS2) = 0.5_dp * (dsqrt(n_c*np_b) - dsqrt(n_b*np_c)) &
+            & * (dsqrt(n_a) - dsqrt(n_d)) * Wab(3,1)
+      end if
+
+      if (indDES2 > 0) then
+        ! <OSS2|H|DES2>
+        StateCoup(indDES2,indOSS2) = 0.5_dp * (dsqrt(n_b*np_b) + dsqrt(n_c*np_c)) &
+            & * (dsqrt(n_a) + dsqrt(n_d)) * Wab(3,1)
+      end if
+
+    end if
+
+    if (indOSS3 > 0) then
+
+      if (indOSS4 > 0) then
+        ! <OSS3|H|OSS4>
+        StateCoup(indOSS4,indOSS3) = 0.5_dp * (dsqrt(mp_a*mp_b) + dsqrt(mp_c*mp_d)) &
+            & * (2.0_dp * ERI(2,5) - ERI(1,6)) &
+            & - 0.5_dp * (dsqrt(mp_a*mp_d) + dsqrt(mp_b*mp_c)) &
+            & * (2.0_dp * ERI(2,5) - ERI(3,4))
+      end if
+
+      if (indDOSS > 0) then
+        ! <OSS3|H|DOSS>
+        StateCoup(indDOSS,indOSS3) = - (dsqrt(mp_a) - dsqrt(mp_c)) * Wab(2,1) &
+            & + (dsqrt(mp_a) + dsqrt(mp_c)) * (ERI(3,6) - ERI(1,4))
+      end if
+
+      if (indDSPS > 0) then
+        ! <OSS3|H|DSPS>
+        StateCoup(indDSPS,indOSS3) = 0.5_dp * dsqrt(3.0_dp) * (dsqrt(mp_a) - dsqrt(mp_c)) * Wab(2,1) &
+            & + 1.0_dp / dsqrt(3.0_dp) * (dsqrt(mp_a) + dsqrt(mp_c)) * (ERI(3,6) - ERI(1,4))
+      end if
+
+      if (indDES1 > 0) then
+        ! <OSS3|H|DES1>
+        StateCoup(indDES1,indOSS3) = 0.5_dp * dsqrt(mp_a) * ( dsqrt(n_a*n_c) * Wab(5,1) &
+            & + dsqrt(n_a*n_b) * ERI(4,6) + dsqrt(n_c*n_d) * ERI(1,3) ) &
+            & + 0.5_dp * dsqrt(mp_c) * ( dsqrt(n_b*n_d) * Wab(5,1) &
+            & - dsqrt(n_a*n_b) * ERI(1,3) - dsqrt(n_c*n_d) * ERI(4,6) )
+      end if
+
+      if (indDES2 > 0) then
+        ! <OSS3|H|DES2>
+        StateCoup(indDES2,indOSS3) = 0.5_dp * dsqrt(mp_a) * ( dsqrt(n_b*n_d) * Wab(5,1) &
+            & - dsqrt(n_a*n_b) * ERI(1,3) - dsqrt(n_c*n_d) * ERI(4,6) ) &
+            & + 0.5_dp * dsqrt(mp_c) * ( dsqrt(n_a*n_c) * Wab(5,1) &
+            & + dsqrt(n_a*n_b) * ERI(4,6) + dsqrt(n_c*n_d) * ERI(1,3) )
+      end if
+
+    end if
+
+    if (indOSS4 > 0) then
+
+      if (indDOSS > 0) then
+        ! <OSS4|H|DOSS>
+        StateCoup(indDOSS,indOSS4) = - (dsqrt(mp_b) - dsqrt(mp_d)) * Wab(5,1) &
+            & + (dsqrt(mp_b) + dsqrt(mp_d)) * (ERI(4,6) - ERI(1,3))
+      end if
+
+      if (indDSPS > 0) then
+        ! <OSS4|H|DSPS>
+        StateCoup(indDSPS,indOSS4) = 0.5_dp * dsqrt(3.0_dp) * (dsqrt(mp_b) - dsqrt(mp_d)) * Wab(5,1) &
+            & + 1.0_dp / dsqrt(3.0_dp) * (dsqrt(mp_b) + dsqrt(mp_d)) * (ERI(4,6) - ERI(1,3))
+      end if
+
+      if (indDES1 > 0) then
+        ! <OSS4|H|DES1>
+        StateCoup(indDES1,indOSS4) = 0.5_dp * dsqrt(mp_b) * ( dsqrt(n_a*n_c) * Wab(2,1) &
+            & - dsqrt(n_a*n_b) * ERI(1,4) - dsqrt(n_c*n_d) * ERI(3,6) ) &
+            & + 0.5_dp * dsqrt(mp_d) * ( dsqrt(n_b*n_d) * Wab(2,1) &
+            & + dsqrt(n_a*n_b) * ERI(3,6) + dsqrt(n_c*n_d) * ERI(1,4) )
+      end if
+
+      if (indDES2 > 0) then
+        ! <OSS4|H|DES2>
+        StateCoup(indDES2,indOSS4) = 0.5_dp * dsqrt(mp_b) * ( dsqrt(n_b*n_d) * Wab(2,1) &
+            & + dsqrt(n_a*n_b) * ERI(3,6) + dsqrt(n_c*n_d) * ERI(1,4) ) &
+            & + 0.5_dp * dsqrt(mp_d) * ( dsqrt(n_a*n_c) * Wab(2,1) &
+            & - dsqrt(n_a*n_b) * ERI(1,4) - dsqrt(n_c*n_d) * ERI(3,6) )
+      end if
+
+    end if
+
+    if (indDOSS > 0) then
+
+      if (indDSPS > 0) then
+        ! <DOSS|H|DSPS>
+        StateCoup(indDSPS,indDOSS) = 0.25_dp * dsqrt(3.0_dp) * (enLtot(31) + enLtot(32) - enLtot(29) - enLtot(30))
+      end if
+
+      if (indDES1 > 0) then
+        ! <DOSS|H|DES1>
+        StateCoup(indDES1,indDOSS) = 0.5_dp * (dsqrt(n_a*n_c) - dsqrt(n_b*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(2,5)) &
+            & + 0.5_dp * (dsqrt(n_a*n_b) - dsqrt(n_c*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(1,6))
+      end if
+
+      if (indDES2 > 0) then
+        ! <DOSS|H|DES2>
+        StateCoup(indDES2,indDOSS) = - 0.5_dp * (dsqrt(n_a*n_c) - dsqrt(n_b*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(2,5)) &
+            & + 0.5_dp * (dsqrt(n_a*n_b) - dsqrt(n_c*n_d)) &
+            & * (2.0_dp * ERI(3,4) - ERI(1,6))
+      end if
+
+    end if
+
+    if (indDSPS > 0) then
+
+      if (indDES1 > 0) then
+        ! <DSPS|H|DES1>
+        StateCoup(indDES1,indDSPS) = 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_c) - dsqrt(n_b*n_d)) * ERI(2,5) &
+            & - 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_b) - dsqrt(n_c*n_d)) * ERI(1,6)
+      end if
+
+      if (indDES2 > 0) then
+        ! <DSPS|H|DES2>
+        StateCoup(indDES2,indDSPS) = - 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_c) - dsqrt(n_b*n_d)) * ERI(2,5) &
+            & - 0.5_dp * dsqrt(3.0_dp) * (dsqrt(n_a*n_b) - dsqrt(n_c*n_d)) * ERI(1,6)
+      end if
+
+    end if
+
+    call adjointLowerTriangle(StateCoup)
+
+  end subroutine getStateCoup44_
 
 
 end module dftbp_reks_reksen
