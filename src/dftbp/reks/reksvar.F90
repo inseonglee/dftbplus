@@ -1395,6 +1395,8 @@ module dftbp_reks_reksvar
 
       if (this%tForces) then
         call error("Force evaluation in SSR(4,4) is not implemented yet")
+      else if (this%tTDP) then
+        call error("Transition dipole moments in SSR(4,4) is not implemented yet")
       end if
 
     end subroutine checkSSR44Requirements

@@ -36,7 +36,7 @@ module dftbp_reks_reksinterface
   use dftbp_dftb_stress, only : getBlockStress
   use dftbp_elecsolvers_elecsolvers, only : TElectronicSolver
   use dftbp_io_taggedoutput, only : TTaggedWriter, tagLabels
-  use dftbp_io_message, only : error
+  use dftbp_io_message, only : error, warning
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : getTwoIndices, getFullLongRangePars
   use dftbp_reks_rekscpeqn, only : cggrad
@@ -235,11 +235,20 @@ module dftbp_reks_reksinterface
         end if
       end if
 
-      call getUnrelaxedDensMatAndTdp(eigenvecs(:,:,1), this%overSqr, rhoL, &
-          & this%FONs, this%eigvecsSSR, this%Lpaired, this%Nc, this%Na, &
-          & this%rstate, this%Lstate, this%reksAlg, this%tSSR, this%tTDP, &
-          & this%unrelRhoSqr, this%unrelTdm, densityMatrix, errStatus)
-      @:PROPAGATE_ERROR(errStatus)
+      ! TODO : The unrealxed transition density matrices cannot be obtained
+      ! at the moment, skip this part to avoid error termination in this routine
+      select case (reksAlg)
+      case (reksTypes%noReks)
+      case (reksTypes%ssr22)
+        call getUnrelaxedDensMatAndTdp(eigenvecs(:,:,1), this%overSqr, rhoL, &
+            & this%FONs, this%eigvecsSSR, this%Lpaired, this%Nc, this%Na, &
+            & this%rstate, this%Lstate, this%reksAlg, this%tSSR, this%tTDP, &
+            & this%unrelRhoSqr, this%unrelTdm, densityMatrix, errStatus)
+        @:PROPAGATE_ERROR(errStatus)
+      case (reksTypes%ssr44)
+        call warning("The unrelaxed (transition) density matrices as well as&
+            & unrelaxed FONs for target SA-REKS state are not supported at the moment")
+      end select
 
       if (this%tTDP) then
         ! TODO : Only Mulliken term is considered for dipole integral at the moment even though
