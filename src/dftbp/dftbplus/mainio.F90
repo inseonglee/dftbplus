@@ -5689,10 +5689,19 @@ contains
         write(fd,"(1X,A5,A20,A20,A13,A15)") "iSCC", "       reks energy  ", &
             & "      Diff energy   ", "      x_a    ", "   SCC error   "
         write(fd,"(I5,4x,F16.10,3x,F16.10,3x,F10.6,3x,F11.8)") &
-            & iSCCIter, energy%Eavg, diffElec, reks%FONs(1,1)*0.5_dp, sccErrorQ
+            & iSCCIter, energy%Eavg, diffElec, reks%FONs(1,1) * 0.5_dp, sccErrorQ
         write(fd, "(A)") repeat("*", 92)
       case (reksTypes%ssr44)
-        call error("SSR(4,4) is not implemented yet")
+        write(fd, "(A)") repeat("*", 113)
+        write(fd,"(1X,A5,A20,A20,A13,A13,A13,A13,A13,A13,A15)") "iSCC", "       reks energy  ", &
+            & "      Diff energy   ", "      x_a    ", "      x_b    ", "     xp_a    ", &
+            & "     xp_b    ", "    xpp_a    ", "    xpp_b    ", "   SCC error   "
+        write(fd,"(I5,4x,F16.10,3x,F16.10,3x,F10.6,3x,F10.6,3x,F10.6,3x,F10.6,3x,&
+            & F10.6,3x,F10.6,3x,F11.8)") iSCCIter, energy%Eavg, diffElec, &
+            & reks%FONs(1,1) * 0.5_dp, reks%FONs(2,1) * 0.5_dp, &
+            & reks%FONs(1,2) * 0.5_dp, reks%FONs(2,2) * 0.5_dp, &
+            & reks%FONs(1,3) * 0.5_dp, reks%FONs(2,3) * 0.5_dp, sccErrorQ
+        write(fd, "(A)") repeat("*", 113)
       end select
       write(fd, *)
     end if
