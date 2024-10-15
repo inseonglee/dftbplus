@@ -50,7 +50,7 @@ module dftbp_reks_reksinterface
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
       & getunrelaxeddensmatandtdp, getdipoleintegral, getdipolemomentmatrix, getreksosc
-  use dftbp_reks_reksvar, only : TReksCalc
+  use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
 
@@ -237,7 +237,7 @@ module dftbp_reks_reksinterface
 
       ! TODO : The unrealxed transition density matrices cannot be obtained
       ! at the moment, skip this part to avoid error termination in this routine
-      select case (reksAlg)
+      select case (this%reksAlg)
       case (reksTypes%noReks)
       case (reksTypes%ssr22)
         call getUnrelaxedDensMatAndTdp(eigenvecs(:,:,1), this%overSqr, rhoL, &
