@@ -378,11 +378,13 @@ module dftbp_reks_reksen
       call getStateCoup22_(Wab, this%FONs, StateCoup)
     case (reksTypes%ssr44)
       allocate(ERI(nActPair,nActPair))
+      call env%globalTimer%startTimer(globalTimers%fourERI)
       call getERI_(env, denseDesc, hybridXc, orb, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, species, eigenvecs(:,:,1), spinW, &
           & onSiteElements, this%hamSqrL, this%hamSpL, this%overSqr, this%weight, &
           & this%fillingL, this%getAtomIndex, this%Nc, this%Na, this%Lpaired, &
           & this%isOnsite, this%isHybridXc, this%isRS_OnsCorr, ERI)
+      call env%globalTimer%stopTimer(globalTimers%fourERI)
       call getStateCoup44_(Wab, ERI, this%enLtot, this%FONs, this%Efunction, &
           & this%tAllStates, StateCoup)
     end select

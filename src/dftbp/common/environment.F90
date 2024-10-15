@@ -93,7 +93,7 @@ module dftbp_common_environment
   end type TEnvironment
 
   !> Timers and their required verbosity levels. Order must match the helper index type
-  type(TTimerItem), parameter :: globalTimerItems(34) = [&
+  type(TTimerItem), parameter :: globalTimerItems(35) = [&
       & TTimerItem("Global initialisation", 1),&
       & TTimerItem("Pre-SCC initialisation", 1),&
       & TTimerItem("Sparse H0 and S build", 4),&
@@ -112,6 +112,7 @@ module dftbp_common_environment
       & TTimerItem("Range-sep onsite-corr Hamiltonian", 4),&
       & TTimerItem("Density matrix creation", 2),&
       & TTimerItem("Energy evaluation", 2),&
+      & TTimerItem("Electron repulsion integral", 2),&
       & TTimerItem("Post-SCC processing", 1),&
       & TTimerItem("Eigenvector writing", 2),&
       & TTimerItem("Energy-density matrix creation", 2),&
@@ -151,22 +152,23 @@ module dftbp_common_environment
     integer :: rangeSepOnsCorrH = 16
     integer :: densityMatrix = 17
     integer :: energyEval = 18
-    integer :: postScc = 19
-    integer :: eigvecWriting = 20
-    integer :: energyDensityMatrix = 21
-    integer :: forceCalc = 22
-    integer :: stressCalc = 23
-    integer :: postGeoOpt = 24
-    integer :: elecDynInit = 25
-    integer :: elecDynLoop = 26
-    integer :: lrExcitation = 27
-    integer :: lrSetup = 28
-    integer :: lrCoulomb = 29
-    integer :: lrTransCharges = 30
-    integer :: lrSolver = 31
-    integer :: lrZVector = 32
-    integer :: lrGradients = 33
-    integer :: lrNAC = 34
+    integer :: fourERI = 19
+    integer :: postScc = 20
+    integer :: eigvecWriting = 21
+    integer :: energyDensityMatrix = 22
+    integer :: forceCalc = 23
+    integer :: stressCalc = 24
+    integer :: postGeoOpt = 25
+    integer :: elecDynInit = 26
+    integer :: elecDynLoop = 27
+    integer :: lrExcitation = 28
+    integer :: lrSetup = 29
+    integer :: lrCoulomb = 30
+    integer :: lrTransCharges = 31
+    integer :: lrSolver = 32
+    integer :: lrZVector = 33
+    integer :: lrGradients = 34
+    integer :: lrNAC = 35
   end type TGlobalTimersHelper
 
 
