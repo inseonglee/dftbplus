@@ -6795,6 +6795,12 @@ contains
     end if
     write(stdOut, "(A,':',T30,F12.6)") "Shift Value", reks%shift
 
+    if (reks%swapOrb == 1) then
+      write (stdOut, "(A,':',T30,A)") "Swap Orbitals", "Based on GVB"
+    else if (reks%swapOrb == 2) then
+      write (stdOut, "(A,':',T30,A)") "Swap Orbitals", "All active pairs"
+    end if
+
     do iType = 1, nType
       if (iType == 1) then
         write(strTmp, "(A,':')") "W Scale Factor"

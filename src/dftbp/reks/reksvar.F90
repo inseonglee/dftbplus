@@ -79,6 +79,11 @@ module dftbp_reks_reksvar
     !> Shift value in SCC cycle
     real(dp) :: shift
 
+    !> Algorithms to swap molecular orbitals during SCF iterations
+    !> 1: swap only a-d or b-c pair
+    !> 2: swap all possible pairs based on FONs
+    integer :: swapOrb
+
     !> Scaling constant for atomic spin constants
     real(dp), allocatable :: Tuning(:)
 
@@ -157,6 +162,9 @@ module dftbp_reks_reksvar
 
     !> Shift value in SCC cycle
     real(dp) :: shift
+
+    !> Algorithms to swap molecular orbitals during SCF iterations
+    integer :: swapOrb
 
     !> Scaling constant for atomic spin constants
     real(dp), allocatable :: Tuning(:)
@@ -650,6 +658,7 @@ module dftbp_reks_reksvar
     this%tReadMO = inp%tReadMO
     this%FonMaxIter = inp%FonMaxIter
     this%shift = inp%shift
+    this%swapOrb = inp%swapOrb
 
     this%tTDP = inp%tTDP
 

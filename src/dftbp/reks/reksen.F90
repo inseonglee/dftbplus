@@ -97,7 +97,7 @@ module dftbp_reks_reksen
     case (reksTypes%ssr22)
       call MOswap22_(eigenvecs, this%SAweight, this%FONs, this%Efunction, this%Nc)
     case (reksTypes%ssr44)
-      call MOswap44_(eigenvecs, this%SAweight, this%FONs, this%Efunction, this%Nc)
+      call MOswap44_(eigenvecs, this%SAweight, this%FONs, this%Efunction, this%swapOrb, this%Nc)
     end select
 
   end subroutine activeOrbSwap
@@ -964,7 +964,7 @@ module dftbp_reks_reksen
 
 
   !> Swap active orbitals when fa < fd or fb < fc in REKS(4,4) case
-  subroutine MOswap44_(eigenvecs, SAweight, FONs, Efunction, Nc)
+  subroutine MOswap44_(eigenvecs, SAweight, FONs, Efunction, swapOrb, Nc)
 
     !> eigenvectors
     real(dp), intent(inout) :: eigenvecs(:,:)
@@ -978,6 +978,9 @@ module dftbp_reks_reksen
     !> Minimized energy functional
     integer, intent(in) :: Efunction
 
+    !> Algorithms to swap molecular orbitals during SCF iterations
+    integer, intent(in) :: swapOrb
+
     !> Number of core orbitals
     integer, intent(in) :: Nc
 
@@ -987,7 +990,8 @@ module dftbp_reks_reksen
     real(dp) :: np_a, np_b, np_c, np_d
     real(dp) :: mp_a, mp_b, mp_c, mp_d
     real(dp) :: fa, fb, fc, fd
-    integer :: nOrb
+    real(dp) :: tmpFon(4), tmp_val, cur_val, old_val
+    integer :: nOrb, ii, jj, cur_ind, old_ind
 
     nOrb = size(eigenvecs,dim=1)
 
@@ -1043,20 +1047,62 @@ module dftbp_reks_reksen
       fd = (n_d*SAweight(1) + SAweight(2) + SAweight(3)) * 0.5_dp
     end if
 
-    if (fa < fd) then
-      write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fa = ", fa, &
-          & ", MO swap between a(", Nc+1, ") and d(", Nc+4, ") occurs"
-      tmpMO(:) = eigenvecs(:,Nc+1)
-      eigenvecs(:,Nc+1) = eigenvecs(:,Nc+4)
-      eigenvecs(:,Nc+4) = tmpMO
-    end if
+    if (swapOrb == 1) then
 
-    if (fb < fc) then
-      write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fb = ", fb, &
-          & ", MO swap between b(", Nc+2, ") and c(", Nc+3, ") occurs"
-      tmpMO(:) = eigenvecs(:,Nc+2)
-      eigenvecs(:,Nc+2) = eigenvecs(:,Nc+3)
-      eigenvecs(:,Nc+3) = tmpMO
+      if (fa < fd) then
+        write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fa = ", fa, &
+            & ", MO swap between a(", Nc+1, ") and d(", Nc+4, ") occurs"
+        tmpMO(:) = eigenvecs(:,Nc+1)
+        eigenvecs(:,Nc+1) = eigenvecs(:,Nc+4)
+        eigenvecs(:,Nc+4) = tmpMO
+      end if
+
+      if (fb < fc) then
+        write(stdOut,'(A6,F9.6,A20,I4,A8,I4,A8)') " fb = ", fb, &
+            & ", MO swap between b(", Nc+2, ") and c(", Nc+3, ") occurs"
+        tmpMO(:) = eigenvecs(:,Nc+2)
+        eigenvecs(:,Nc+2) = eigenvecs(:,Nc+3)
+        eigenvecs(:,Nc+3) = tmpMO
+      end if
+
+    else if (swapOrb == 2) then
+
+      tmpFon(1) = fa
+      tmpFon(2) = fb
+      tmpFon(3) = fc
+      tmpFon(4) = fd
+
+      do ii = Nc + 1, Nc + 3
+        old_ind = ii
+        old_val = tmpFon(ii-Nc)
+        do jj = ii + 1, Nc + 4
+          cur_ind = jj
+          cur_val = tmpFon(jj-Nc)
+
+          if (cur_val > old_val) then
+            write(stdOut,'(A5,1x,F9.6,A5,1x,F9.6,A19,I4,A7,I4,A8)') " f = ", cur_val, " f = ", &
+                & old_val, ", MO swap between (", cur_ind, ") and (", old_ind, ") occurs"
+            ! change averaged occupation numbers
+            tmp_val = tmpFon(cur_ind-Nc)
+            tmpFon(cur_ind-Nc) = tmpFon(old_ind-Nc)
+            tmpFon(old_ind-Nc) = tmp_val
+            ! TODO : Should we swap the FONs as well?
+!            ! swap the fractional occupation numbers
+!            do ifon = 1, 3
+!              tmp_val = FONs(cur_ind-Nc,ifon)
+!              FONs(cur_ind-Nc,ifon) = FONs(old_ind-Nc,ifon)
+!              FONs(old_ind-Nc,ifon) = tmp_val
+!            end do
+            ! swap the eigenvectors
+            tmpMO(:) = eigenvecs(:,cur_ind)
+            eigenvecs(:,cur_ind) = eigenvecs(:,old_ind)
+            eigenvecs(:,old_ind) = tmpMO
+            ! save old number
+            old_val = cur_val
+          end if
+        end do
+      end do
+
     end if
 
   end subroutine MOswap44_

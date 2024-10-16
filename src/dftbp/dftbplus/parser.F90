@@ -8375,6 +8375,23 @@ contains
     !> Shift value in SCC cycle
     call getChildValue(node, "Shift", ctrl%reksInp%shift, default=0.3_dp)
 
+    !> Read 'SwapOrbitals' block
+    !> Algorithms to swap molecular orbitals during SCF iterations
+    call getChildValue(node, "SwapOrbitals", value2, "GVB", child=child2)
+    call getNodeName(value2, buffer2)
+
+    select case (char(buffer2))
+    case ("gvb")
+      !> 1: swap only a-d or b-c pair
+      ctrl%reksInp%swapOrb = 1
+    case ("all")
+      !> 2: swap all possible pairs based on FONs
+      ctrl%reksInp%swapOrb = 2
+    case default
+      call getNodeHSDName(value2, buffer2)
+      call detailedError(child2, "Invalid Algorithm '" // char(buffer2) // "'")
+    end select
+
     !> Read "SpinTuning" block with 'nType' elements
     call readSpinTuning(node, ctrl, geo%nSpecies)
 
