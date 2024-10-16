@@ -5692,7 +5692,7 @@ contains
             & iSCCIter, energy%Eavg, diffElec, reks%FONs(1,1) * 0.5_dp, sccErrorQ
         write(fd, "(A)") repeat("*", 92)
       case (reksTypes%ssr44)
-        write(fd, "(A)") repeat("*", 113)
+        write(fd, "(A)") repeat("*", 138)
         write(fd,"(1X,A5,A20,A20,A13,A13,A13,A13,A13,A13,A15)") "iSCC", "       reks energy  ", &
             & "      Diff energy   ", "      x_a    ", "      x_b    ", "     xp_a    ", &
             & "     xp_b    ", "    xpp_a    ", "    xpp_b    ", "   SCC error   "
@@ -5701,7 +5701,7 @@ contains
             & reks%FONs(1,1) * 0.5_dp, reks%FONs(2,1) * 0.5_dp, &
             & reks%FONs(1,2) * 0.5_dp, reks%FONs(2,2) * 0.5_dp, &
             & reks%FONs(1,3) * 0.5_dp, reks%FONs(2,3) * 0.5_dp, sccErrorQ
-        write(fd, "(A)") repeat("*", 113)
+        write(fd, "(A)") repeat("*", 138)
       end select
       write(fd, *)
     end if

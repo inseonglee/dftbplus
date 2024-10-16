@@ -6759,6 +6759,10 @@ contains
         write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS1+OSS2)/3"
       else if (reks%Efunction == 4) then
         write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS1+OSS2+OSS3+OSS4)/5"
+      else if (reks%Efunction == 5) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS1+OSS2+OSS3+OSS4+DOSS+DSPS)/7"
+      else if (reks%Efunction == 6) then
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+DOSS+DSPS)/3"
       end if
     end select
 

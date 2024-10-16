@@ -28,7 +28,7 @@ module dftbp_reks_reksen
   use dftbp_math_eigensolver, only : heev
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : getFactor, getTwoIndices, matAO2MO,&
-      & getFullLongRangePars
+      & getSaReksIndex44, getFullLongRangePars
   use dftbp_reks_reksio, only : printReksSSRInfo
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
@@ -780,32 +780,8 @@ module dftbp_reks_reksen
     Lmax = size(weightL,dim=2)
     SAstates = size(SAweight,dim=1)
 
-    ! Reset the indices for SA-REKS(4,4) states
-    indPPS = 0; indOSS1 = 0; indOSS2 = 0
-    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
-    indDSPS = 0; indDES1 = 0; indDES2 = 0
-
-    if (tAllStates .and. tConverged) then
-      ! Calculate weight of 9 states
-      indPPS = 1; indOSS1 = 2; indOSS2 = 3
-      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
-      indDSPS = 7; indDES1 = 8; indDES2 = 9
-    else
-      ! Calculate weight of states used for state-averaging
-      ! PPS state
-      indPPS = 1
-      if (Efunction == 2) then
-        ! DSPS state
-        indDSPS = 2
-      else if (Efunction == 3 .or. Efunction == 4) then
-        ! OSS1, OSS2 state
-        indOSS1 = 2; indOSS2 = 3
-        if (Efunction == 4) then
-          ! OSS3, OSS4 state
-          indOSS3 = 4; indOSS4 = 5
-        end if
-      end if
-    end if
+    call getSaReksIndex44(Efunction, tAllStates, indPPS, indOSS1, indOSS2,&
+        & indOSS3, indOSS4, indDOSS, indDSPS, indDES1, indDES2, tConverged)
 
     n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
     np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
@@ -1048,7 +1024,23 @@ module dftbp_reks_reksen
       fc = (n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3) &
           &+ mp_c*SAweight(4) + SAweight(5)) * 0.5_dp
       fd = (n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
-          &+ SAweight(5) + mp_d*SAweight(5)) * 0.5_dp
+          &+ SAweight(4) + mp_d*SAweight(5)) * 0.5_dp
+    else if (Efunction == 5) then
+      ! 7SA-REKS charge
+      fa = 0.5_dp * (n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3) &
+          &+ mp_a*SAweight(4) + SAweight(5) + SAweight(6) + SAweight(7))
+      fb = 0.5_dp * (n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3) &
+          &+ SAweight(4) + mp_b*SAweight(5) + SAweight(6) + SAweight(7))
+      fc = 0.5_dp * (n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3) &
+          &+ mp_c*SAweight(4) + SAweight(5) + SAweight(6) + SAweight(7))
+      fd = 0.5_dp * (n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
+          &+ SAweight(4) + mp_d*SAweight(5) + SAweight(6) + SAweight(7))
+    else if (Efunction == 6) then
+      ! 3SA-REKS charge
+      fa = (n_a*SAweight(1) + SAweight(2) + SAweight(3)) * 0.5_dp
+      fb = (n_b*SAweight(1) + SAweight(2) + SAweight(3)) * 0.5_dp
+      fc = (n_c*SAweight(1) + SAweight(2) + SAweight(3)) * 0.5_dp
+      fd = (n_d*SAweight(1) + SAweight(2) + SAweight(3)) * 0.5_dp
     end if
 
     if (fa < fd) then
@@ -1173,6 +1165,22 @@ module dftbp_reks_reksen
           &+ mp_c*SAweight(4) + SAweight(5)
       filling(Nc+4) = n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
           &+ SAweight(4) + mp_d*SAweight(5)
+    else if (Efunction == 5) then
+      ! 7SA-REKS charge
+      filling(Nc+1) = n_a*SAweight(1) + np_a*SAweight(2) + SAweight(3) &
+          &+ mp_a*SAweight(4) + SAweight(5) + SAweight(6) + SAweight(7)
+      filling(Nc+2) = n_b*SAweight(1) + SAweight(2) + np_b*SAweight(3) &
+          &+ SAweight(4) + mp_b*SAweight(5) + SAweight(6) + SAweight(7)
+      filling(Nc+3) = n_c*SAweight(1) + SAweight(2) + np_c*SAweight(3) &
+          &+ mp_c*SAweight(4) + SAweight(5) + SAweight(6) + SAweight(7)
+      filling(Nc+4) = n_d*SAweight(1) + np_d*SAweight(2) + SAweight(3) &
+          &+ SAweight(4) + mp_d*SAweight(5) + SAweight(6) + SAweight(7)
+    else if (Efunction == 6) then
+      ! 3SA-REKS charge
+      filling(Nc+1) = n_a*SAweight(1) + SAweight(2) + SAweight(3)
+      filling(Nc+2) = n_b*SAweight(1) + SAweight(2) + SAweight(3)
+      filling(Nc+3) = n_c*SAweight(1) + SAweight(2) + SAweight(3)
+      filling(Nc+4) = n_d*SAweight(1) + SAweight(2) + SAweight(3)
     end if
 
   end subroutine getFilling44_
@@ -2234,25 +2242,8 @@ module dftbp_reks_reksen
     integer :: indOSS3, indOSS4, indDOSS
     integer :: indDSPS, indDES1, indDES2
 
-    indPPS = 0; indOSS1 = 0; indOSS2 = 0
-    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
-    indDSPS = 0; indDES1 = 0; indDES2 = 0
-
-    if (tAllStates) then
-      indPPS = 1; indOSS1 = 2; indOSS2 = 3
-      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
-      indDSPS = 7; indDES1 = 8; indDES2 = 9
-    else
-      indPPS = 1
-      if (Efunction == 2) then
-        indDSPS = 2
-      else if (Efunction == 3 .or. Efunction == 4) then
-        indOSS1 = 2; indOSS2 = 3
-        if (Efunction == 4) then
-          indOSS3 = 4; indOSS4 = 5
-        end if
-      end if
-    end if
+    call getSaReksIndex44(Efunction, tAllStates, indPPS, indOSS1, indOSS2,&
+        & indOSS3, indOSS4, indDOSS, indDSPS, indDES1, indDES2)
 
     n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
     np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)

@@ -33,7 +33,7 @@ module dftbp_reks_rekscommon
   public :: qm2udL, ud2qmL
   public :: qmExpandL, udExpandL
   public :: matAO2MO, matMO2AO
-  public :: getSpaceSym, getFullLongRangePars
+  public :: getSpaceSym, getSaReksIndex44, getFullLongRangePars
   public :: assignIndex, assignEpsilon, assignFilling
 
   !> Swap from charge/magnetisation to up/down in REKS
@@ -517,6 +517,100 @@ module dftbp_reks_rekscommon
     end if
 
   end subroutine getSpaceSym
+
+
+  !> Obtain the proper indices for SA-REKS(4,4) states
+  subroutine getSaReksIndex44(Efunction, tAllStates, indPPS, indOSS1, indOSS2,&
+      & indOSS3, indOSS4, indDOSS, indDSPS, indDES1, indDES2, tConverged)
+
+    !> Minimized energy functional
+    integer, intent(in) :: Efunction
+
+    !> Decide the energy states in SA-REKS
+    logical, intent(in) :: tAllStates
+
+    !> Index for PPS state
+    integer, intent(out) :: indPPS
+
+    !> Index for OSS1 state
+    integer, intent(out) :: indOSS1
+
+    !> Index for OSS2 state
+    integer, intent(out) :: indOSS2
+
+    !> Index for OSS3 state
+    integer, intent(out) :: indOSS3
+
+    !> Index for OSS4 state
+    integer, intent(out) :: indOSS4
+
+    !> Index for DOSS state
+    integer, intent(out) :: indDOSS
+
+    !> Index for DSPS state
+    integer, intent(out) :: indDSPS
+
+    !> Index for DES1 state
+    integer, intent(out) :: indDES1
+
+    !> Index for DES2 state
+    integer, intent(out) :: indDES2
+
+    !> Has the calculation converged?
+    logical, optional, intent(in) :: tConverged
+
+    ! Reset the indices for SA-REKS(4,4) states
+    indPPS = 0; indOSS1 = 0; indOSS2 = 0
+    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
+    indDSPS = 0; indDES1 = 0; indDES2 = 0
+
+    if (present(tConverged)) then
+      if (tAllStates .and. tConverged) then
+        indPPS = 1; indOSS1 = 2; indOSS2 = 3
+        indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+        indDSPS = 7; indDES1 = 8; indDES2 = 9
+      else
+        indPPS = 1
+        if (Efunction == 2) then
+          indDSPS = 2
+        else if (Efunction == 3) then
+          indOSS1 = 2; indOSS2 = 3
+        else if (Efunction == 4) then
+          indOSS1 = 2; indOSS2 = 3
+          indOSS3 = 4; indOSS4 = 5
+        else if (Efunction == 5) then
+          indOSS1 = 2; indOSS2 = 3
+          indOSS3 = 4; indOSS4 = 5
+          indDOSS = 6; indDSPS = 7
+        else if (Efunction == 6) then
+          indDOSS = 2; indDSPS = 3
+        end if
+      end if
+    else
+      if (tAllStates) then
+        indPPS = 1; indOSS1 = 2; indOSS2 = 3
+        indOSS3 = 4; indOSS4 = 5; indDOSS = 6
+        indDSPS = 7; indDES1 = 8; indDES2 = 9
+      else
+        indPPS = 1
+        if (Efunction == 2) then
+          indDSPS = 2
+        else if (Efunction == 3) then
+          indOSS1 = 2; indOSS2 = 3
+        else if (Efunction == 4) then
+          indOSS1 = 2; indOSS2 = 3
+          indOSS3 = 4; indOSS4 = 5
+        else if (Efunction == 5) then
+          indOSS1 = 2; indOSS2 = 3
+          indOSS3 = 4; indOSS4 = 5
+          indDOSS = 6; indDSPS = 7
+        else if (Efunction == 6) then
+          indDOSS = 2; indDSPS = 3
+        end if
+      end if
+    end if
+
+  end subroutine getSaReksIndex44
 
 
   !> Calculate SCC, spin, LC parameters with matrix form

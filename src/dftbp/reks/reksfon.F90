@@ -66,7 +66,7 @@ module dftbp_reks_reksfon
         optFON3 = .false.
         if (this%Efunction == 3) then
           optFON2 = .true.
-        else if (this%Efunction == 4) then
+        else if (this%Efunction == 4 .or. this%Efunction == 5) then
           optFON2 = .true.
           optFON3 = .true.
         end if
@@ -74,7 +74,7 @@ module dftbp_reks_reksfon
         optFON1 = .false.
         optFON2 = .false.
         optFON3 = .false.
-        if (this%Efunction == 2) then
+        if (this%Efunction == 2 .or. this%Efunction == 6) then
           optFON2 = .true.
           optFON3 = .true.
         else if (this%Efunction == 3) then

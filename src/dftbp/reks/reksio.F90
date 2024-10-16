@@ -19,7 +19,7 @@ module dftbp_reks_reksio
   use dftbp_common_file, only : TFileDescr, openFile, closeFile
   use dftbp_common_globalenv, only: stdOut
   use dftbp_io_message, only : error
-  use dftbp_reks_rekscommon, only : getTwoIndices, getSpaceSym
+  use dftbp_reks_rekscommon, only : getTwoIndices, getSpaceSym, getSaReksIndex44
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
 
   implicit none
@@ -565,26 +565,8 @@ module dftbp_reks_reksio
 
     Lmax = size(enLtot,dim=1)
 
-    ! Reset the indices for SA-REKS(4,4) states
-    indPPS = 0; indOSS1 = 0; indOSS2 = 0
-    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
-    indDSPS = 0; indDES1 = 0; indDES2 = 0
-
-    if (tAllStates) then
-      indPPS = 1; indOSS1 = 2; indOSS2 = 3
-      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
-      indDSPS = 7; indDES1 = 8; indDES2 = 9
-    else
-      indPPS = 1
-      if (Efunction == 2) then
-        indDSPS = 2
-      else if (Efunction == 3 .or. Efunction == 4) then
-        indOSS1 = 2; indOSS2 = 3
-        if (Efunction == 4) then
-          indOSS3 = 4; indOSS4 = 5
-        end if
-      end if
-    end if
+    call getSaReksIndex44(Efunction, tAllStates, indPPS, indOSS1, indOSS2,&
+        & indOSS3, indOSS4, indDOSS, indDSPS, indDES1, indDES2)
 
     n_a = FONs(1,1); n_b = FONs(2,1); n_c = FONs(3,1); n_d = FONs(4,1)
     np_a = FONs(1,2); np_b = FONs(2,2); np_c = FONs(3,2); np_d = FONs(4,2)
@@ -825,25 +807,8 @@ module dftbp_reks_reksio
     nActPair = size(Wab,dim=1)
     nstates = size(energy,dim=1)
 
-    indPPS = 0; indOSS1 = 0; indOSS2 = 0
-    indOSS3 = 0; indOSS4 = 0; indDOSS = 0
-    indDSPS = 0; indDES1 = 0; indDES2 = 0
-
-    if (tAllStates) then
-      indPPS = 1; indOSS1 = 2; indOSS2 = 3
-      indOSS3 = 4; indOSS4 = 5; indDOSS = 6
-      indDSPS = 7; indDES1 = 8; indDES2 = 9
-    else
-      indPPS = 1
-      if (Efunction == 2) then
-        indDSPS = 2
-      else if (Efunction == 3 .or. Efunction == 4) then
-        indOSS1 = 2; indOSS2 = 3
-        if (Efunction == 4) then
-          indOSS3 = 4; indOSS4 = 5
-        end if
-      end if
-    end if
+    call getSaReksIndex44(Efunction, tAllStates, indPPS, indOSS1, indOSS2,&
+        & indOSS3, indOSS4, indDOSS, indDSPS, indDES1, indDES2)
 
     write(stdOut,*)
     do ist = 1, nActPair
@@ -906,6 +871,29 @@ module dftbp_reks_reksio
         write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
             & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
       end if
+    else if (Efunction == 5) then
+      if (.not. tAllStates) then
+        write(stdOut, "(A)") repeat("-", 107)
+        write(stdOut,'(A)') " SSR: 7SI-7SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') "PPS ", "OSS1", &
+            & "OSS2", "OSS3", "OSS4", "DOSS", "DSPS"
+      else
+        write(stdOut, "(A)") repeat("-", 135)
+        write(stdOut,'(A)') " SSR: 9SI-7SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
+            & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
+      end if
+    else if (Efunction == 6) then
+      if (.not. tAllStates) then
+        write(stdOut, "(A)") repeat("-", 50)
+        write(stdOut,'(A)') " SSR: 3SI-3SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4)') "PPS ", "DOSS", "DSPS"
+      else
+        write(stdOut, "(A)") repeat("-", 135)
+        write(stdOut,'(A)') " SSR: 9SI-3SA-REKS(4,4) Hamiltonian matrix"
+        write(stdOut,'(14x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4,10x,A4)') &
+            & "PPS ", "OSS1", "OSS2", "OSS3", "OSS4", "DOSS", "DSPS", "DES1", "DES2"
+      end if
     end if
 
     do ist = 1, nstates
@@ -952,6 +940,10 @@ module dftbp_reks_reksio
         write(stdOut, "(A)") repeat("-", 50)
       else if (Efunction == 4) then
         write(stdOut, "(A)") repeat("-", 80)
+      else if (Efunction == 5) then
+        write(stdOut, "(A)") repeat("-", 107)
+      else if (Efunction == 6) then
+        write(stdOut, "(A)") repeat("-", 50)
       end if
     else
       write(stdOut, "(A)") repeat("-", 135)
@@ -966,6 +958,10 @@ module dftbp_reks_reksio
           write(stdOut, "(A)") repeat("-", 64)
         else if (Efunction == 4) then
           write(stdOut, "(A)") repeat("-", 85)
+        else if (Efunction == 5) then
+          write(stdOut, "(A)") repeat("-", 107)
+        else if (Efunction == 6) then
+          write(stdOut, "(A)") repeat("-", 64)
         end if
       else
         write(stdOut, "(A)") repeat("-", 130)
@@ -980,6 +976,13 @@ module dftbp_reks_reksio
         else if (Efunction == 4) then
           write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8,3x,A8,3x,A8)') "E_n",&
               & "C_{PPS}", "C_{OSS1}", "C_{OSS2}", "C_{OSS3}", "C_{OSS4}"
+        else if (Efunction == 5) then
+          write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8)')&
+              & "E_n", "C_{PPS}", "C_{OSS1}", "C_{OSS2}", "C_{OSS3}",&
+              & "C_{OSS4}", "C_{DOSS}", "C_{DSPS}"
+        else if (Efunction == 6) then
+          write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8)') "E_n", "C_{PPS}",&
+              & "C_{DOSS}", "C_{DSPS}"
         end if
       else
         write(stdOut,'(19x,A4,7x,A7,4x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8,3x,A8)')&
@@ -997,6 +1000,12 @@ module dftbp_reks_reksio
           else if (Efunction == 4) then
             write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6)')&
                 & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+          else if (Efunction == 5) then
+            write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,&
+                & 1x,f10.6,1x,f10.6)') "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
+          else if (Efunction == 6) then
+            write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6)')&
+                & "SSR state ", ist, energy(ist), eigvecsSSR(:,ist)
           end if
         else
           write(stdOut,'(1x,A,I2,1x,f13.8,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,1x,f10.6,&
@@ -1011,6 +1020,10 @@ module dftbp_reks_reksio
           write(stdOut, "(A)") repeat("-", 64)
         else if (Efunction == 4) then
           write(stdOut, "(A)") repeat("-", 85)
+        else if (Efunction == 5) then
+          write(stdOut, "(A)") repeat("-", 107)
+        else if (Efunction == 6) then
+          write(stdOut, "(A)") repeat("-", 64)
         end if
       else
         write(stdOut, "(A)") repeat("-", 130)

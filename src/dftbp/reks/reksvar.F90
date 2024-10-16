@@ -50,6 +50,7 @@ module dftbp_reks_reksvar
     !> Minimized energy functional
     !> In SSR(2,2), 1: PPS, 2: (PPS+OSS)/2
     !> In SSR(4,4), 1: PPS, 2: (PPS+DSPS)/2, 3: (PPS+OSS1+OSS2)/3, 4: (PPS+OSS1+OSS2+OSS3+OSS4)/5
+    !>              5: (PPS+OSS1+OSS2+OSS3+OSS4+DOSS+DSPS)/7, 6: (PPS+DOSS+DSPS)/3
     integer :: Efunction
 
     !> Decide the energy states in SA-REKS
@@ -1262,6 +1263,26 @@ module dftbp_reks_reksvar
         if (.not. this%tAllStates) then
           ! PPS, OSS1, OSS2, OSS3, OSS4 state
           this%nstates = 5
+        else
+          ! all states
+          this%nstates = 9
+        end if
+      else if (this%Efunction == 5) then
+        ! (PPS+OSS1+OSS2+OSS3+OSS4+DOSS+DSPS)/7 state is minimized; SA-REKS
+        this%SAstates = 7
+        if (.not. this%tAllStates) then
+          ! PPS, OSS1, OSS2, OSS3, OSS4, DOSS, DSPS state
+          this%nstates = 7
+        else
+          ! all states
+          this%nstates = 9
+        end if
+      else if (this%Efunction == 6) then
+        ! (PPS+DOSS+DSPS)/3 state is minimized; SA-REKS
+        this%SAstates = 3
+        if (.not. this%tAllStates) then
+          ! PPS, DOSS, DSPS state
+          this%nstates = 3
         else
           ! all states
           this%nstates = 9

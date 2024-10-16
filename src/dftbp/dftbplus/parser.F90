@@ -8311,6 +8311,10 @@ contains
           & trim(tmpFunc(3)) == "OSS2") then
         !> Minimized energy functional : (PPS+OSS1+OSS2)/3
         ctrl%reksInp%Efunction = 3
+      else if (trim(tmpFunc(1)) == "PPS" .and. trim(tmpFunc(2)) == "DOSS" .and.&
+          & trim(tmpFunc(3)) == "DSPS") then
+        !> Minimized energy functional : (PPS+DOSS+DSPS)/3
+        ctrl%reksInp%Efunction = 6
       else
         tFunc = .false.
       end if
@@ -8320,6 +8324,16 @@ contains
           & trim(tmpFunc(5)) == "OSS4") then
         !> Minimized energy functional : (PPS+OSS1+OSS2+OSS3+OSS4)/5
         ctrl%reksInp%Efunction = 4
+      else
+        tFunc = .false.
+      end if
+    else if (nFunc == 7) then
+      if (trim(tmpFunc(1)) == "PPS" .and. trim(tmpFunc(2)) == "OSS1" .and.&
+          & trim(tmpFunc(3)) == "OSS2" .and. trim(tmpFunc(4)) == "OSS3" .and.&
+          & trim(tmpFunc(5)) == "OSS4" .and. trim(tmpFunc(6)) == "DOSS" .and.&
+          & trim(tmpFunc(7)) == "DSPS") then
+        !> Minimized energy functional : (PPS+OSS1+OSS2+OSS3+OSS4+DOSS+DSPS)/7
+        ctrl%reksInp%Efunction = 5
       else
         tFunc = .false.
       end if
