@@ -119,6 +119,9 @@ module dftbp_reks_reksvar
     !> Calculate nonadiabatic coupling vectors
     logical :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical :: tTDPgrad
+
 
     !> REKS: system variables
 
@@ -193,6 +196,9 @@ module dftbp_reks_reksvar
 
     !> Calculate nonadiabatic coupling vectors
     logical :: tNAC
+
+    !> Calculate gradients of transition dipole moment
+    logical :: tTDPgrad
 
 
     !> REKS: system variables (input)
@@ -673,6 +679,7 @@ module dftbp_reks_reksvar
 
     this%tRD = inp%tRD
     this%tNAC = inp%tNAC
+    this%tTDPgrad = inp%tTDPgrad
 
     ! Set REKS variables
 
@@ -1364,12 +1371,20 @@ module dftbp_reks_reksvar
           end if
         end if
 
+        if (this%tTDPgrad) then
+          if (.not. this%tTDP) then
+            call error("Transition dipole gradient requires calculation of transition dipole moments")
+          end if
+        end if
+
       else
 
         if (this%tNAC) then
           call error("Nonadiabatic coupling requires force evaluation")
         else if (this%tRD) then
           call error("Relaxed density requires force evaluation")
+        else if (this%tTDPgrad) then
+          call error("Transition dipole gradient requires force evaluation")
         end if
 
       end if

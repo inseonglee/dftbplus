@@ -8253,6 +8253,8 @@ contains
     call getChildValue(node, "RelaxedDensity", ctrl%reksInp%tRD, default=.false.)
     !> Calculate nonadiabatic coupling vectors
     call getChildValue(node, "NonAdiabaticCoupling", ctrl%reksInp%tNAC, default=.false.)
+    !> Calculate gradients of transition dipole moment
+    call getChildValue(node, "TransitionDipoleGradient", ctrl%reksInp%tTDPgrad, default=.false.)
 
     !> Print level in standard output file
     call getChildValue(node, "VerbosityLevel", ctrl%reksInp%Plevel, default=1)

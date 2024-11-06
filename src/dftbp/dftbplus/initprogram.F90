@@ -6856,6 +6856,10 @@ contains
         write(stdOut, "(A,':',T30,A)") "Relaxed Density for QM/MM", "Yes"
       end if
 
+      if (reks%tTDPgrad) then
+        write(stdOut, "(A,':',T30,A)") "Transition Dipole Gradient", "Yes"
+      end if
+
     end if
 
   end subroutine printReksInitInfo
