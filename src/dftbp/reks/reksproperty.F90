@@ -541,11 +541,14 @@ module dftbp_reks_reksproperty
       R(mu,:) = coord0(:,ii)
     end do
 
+    ! TODO : Only Mulliken term is considered for dipole integral at the moment even though
+    !        the onsite integrals are included during SCC iteration
     dipoleInt(:,:,:) = 0.0_dp
     do ii = 1, 3
       do mu = 1, nOrb
         do nu = 1, nOrb
-          dipoleInt(mu,nu,ii) = 0.5_dp * over(mu,nu) * (R(mu,ii) + R(nu,ii))
+          ! A negative sign must be included due to the electron charge (e = -1)
+          dipoleInt(mu,nu,ii) = -0.5_dp * over(mu,nu) * (R(mu,ii) + R(nu,ii))
         end do
       end do
     end do

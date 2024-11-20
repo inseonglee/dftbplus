@@ -198,7 +198,9 @@ module dftbp_reks_reksinterface
     nstHalf = this%nstates * (this%nstates - 1) / 2
 
     allocate(rhoL(nOrb,nOrb))
-    allocate(dipoleInt(nOrb,nOrb,3))
+    if (this%tTDP) then
+      allocate(dipoleInt(nOrb,nOrb,3))
+    end if
 
     ! Get the unrelaxed density matrix for SA-REKS or SSR state
     ! The matrix that used in this calculation is not relaxed density
@@ -373,11 +375,15 @@ module dftbp_reks_reksinterface
     integer, intent(in), optional :: nNeighbourCamSym(:)
 
     real(dp), allocatable :: Qmat(:,:)
+    real(dp), allocatable :: dipoleInt(:,:,:)
     integer :: ist, ia, ib, nstHalf, fac
 
     nstHalf = this%nstates * (this%nstates-1) / 2
 
     allocate(Qmat(orb%nOrb,orb%nOrb))
+    if (this%tTDPgrad) then
+      allocate(dipoleInt(nOrb,nOrb,3))
+    end if
 
     ! get the periodic information
     if (this%tPeriodic) then
@@ -401,6 +407,12 @@ module dftbp_reks_reksinterface
 
       call buildStateVectors_(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, orb, over, this)
+
+      if (this%tTDPgrad) then
+        ! TODO : Only Mulliken term is considered for dipole integral at the moment even though
+        !        the onsite integrals are included during SCC iteration
+        call getDipoleIntegral(coord0, this%overSqr, this%getAtomIndex, dipoleInt)
+      end if
 
       if (this%tNAC) then
 
