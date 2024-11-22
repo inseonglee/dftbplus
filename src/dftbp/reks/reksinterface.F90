@@ -567,10 +567,11 @@ module dftbp_reks_reksinterface
                 & this%ZmatL, this%Q1mat, this%Q2mat, optionQMMM=.false.)
             Qmat(:,:) = this%Q1mat + this%Q2mat
             call TDPshift(denseDesc%iAtomStart, eigenvecs, over, coord0, orb%mOrb, Qmat,&
-                & this%symTdpVec(:,:,ii,ist), this%gradL, this%preTdp(:,ist), this%Sderiv,&
+                & this%symTdpVec(:,:,ii,ist), this%gradL, this%preTdp(:,ist), this%unrelDp,&
+                & this%unrelTdp, this%eigvecsSSR, this%eigvecsSSRderiv, this%Sderiv,&
                 & this%unrelTdm(:,:,ist), this%ZTtdp(:,ii,ist), this%SAweight, this%omega,&
                 & this%weightIL, this%G1, this%getDenseAO, this%getAtomIndex, ii,&
-                & this%TDPgrad(:,:,ii,ist))
+                & this%tSSR, this%TDPgrad(:,:,ii,ist))
 
           end do
         end do

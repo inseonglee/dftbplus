@@ -953,10 +953,10 @@ module dftbp_reks_reksproperty
   end subroutine getSsrCoefDeriv
 
 
-  !> Calculate TDP gradient except RT shift and SSR state coefficients terms
+  !> Calculate TDP gradient except RT shift term
   subroutine TDPshift(iSquare, eigenvecs, over, coord0, mOrb, Qmat, symTdpVec, gradL,&
-      & preTdp, Sderiv, unrelTdm, ZTtdp, SAweight, omega, weightIL, G1, getDenseAO,&
-      & getAtomIndex, ii, grad)
+      & preTdp, unrelDp, unrelTdp, eigvecsSSR, eigvecsSSRderiv, Sderiv, unrelTdm, ZTtdp,&
+      & SAweight, omega, weightIL, G1, getDenseAO, getAtomIndex, ii, tSSR, grad)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -984,6 +984,18 @@ module dftbp_reks_reksproperty
 
     !> prefactor before the derivatives of FONs with dipole integral
     real(dp), intent(in) :: preTdp(:)
+
+    !> unrelaxed dipole moment for SA-REKS state
+    real(dp), allocatable, intent(in) :: unrelDp(:,:)
+
+    !> unrelaxed transition dipole moment between SA-REKS states
+    real(dp), allocatable, intent(in) :: unrelTdp(:,:)
+
+    !> eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSR(:,:)
+
+    !> derivatives of eigenvectors from SA-REKS state
+    real(dp), allocatable, intent(in) :: eigvecsSSRderiv(:,:,:,:)
 
     !> Dense overlap derivative in AO basis
     real(dp), intent(in) :: Sderiv(:,:,:)
@@ -1015,6 +1027,9 @@ module dftbp_reks_reksproperty
     !> Current index for x, y, z axis
     integer, intent(in) :: ii
 
+    !> Calculate SSR state with inclusion of SI, otherwise calculate SA-REKS state
+    logical, intent(in) :: tSSR
+
     !> all gradient components except R*T shift term
     real(dp), intent(out) :: grad(:,:)
 
@@ -1024,11 +1039,14 @@ module dftbp_reks_reksproperty
     real(dp) :: tmpValue, tmpR, derivTmp
     integer :: iL, Lmax, nOrb, nAtom, sparseSize
     integer :: mu, nu, iAtom, iAtom1, iAtom2, l
+    integer :: ist, jst, kst, lst, ia, ib, nstates, nstHalf
 
     Lmax = size(weightIL,dim=1)
     nOrb = size(Sderiv,dim=1)
     nAtom = size(gradL,dim=2)
     sparseSize = size(getDenseAO,dim=1)
+    nstates = size(eigvecsSSR,dim=1)
+    nstHalf = nstates * (nstates - 1) / 2
 
     allocate(tmpMat(nOrb,nOrb))
     allocate(Rderiv(sparseSize))
@@ -1036,17 +1054,18 @@ module dftbp_reks_reksproperty
     call matMO2AO(Qmat, eigenvecs(:,:,1))
     call matMO2AO(symTdpVec, eigenvecs(:,:,1))
 
-    tmpValue = sum(ZTtdp(:)*omega(:))
-    ! energy derivative term originating from orbital response
     grad(:,:) = 0.0_dp
+
+    ! Orbital response contribution; energy derivative term
+    tmpValue = sum(ZTtdp(:)*omega(:))
     do iL = 1, Lmax
       grad(:,:) = grad - gradL(:,:,iL) * &
           & SAweight(1)*G1*weightIL(iL)*tmpValue
     end do
-    ! Q * S_deriv term originating from orbital response
+    ! Orbital response contribution; Q * S_deriv term
     call shiftQSgrad_(Qmat + transpose(Qmat), Sderiv, -1.0_dp, iSquare, mOrb, grad)
 
-    ! symmetric TDP * S_deriv term originating from orbital response
+    ! symmetric TDP * S_deriv term
     call shiftQSgrad_(symTdpVec, Sderiv, 2.0_dp, iSquare, mOrb, grad)
 
     ! energy derivative terms originating from FON derivatives
@@ -1107,6 +1126,34 @@ module dftbp_reks_reksproperty
       grad(ii,iAtom) = grad(ii,iAtom) + derivTmp
 
     end do
+
+    ! coefficient derivative terms with unrelaxed (transition) dipole
+    if (tSSR) then
+      do lst = 1, nstHalf
+
+        call getTwoIndices(nstates, lst, ia, ib, 1)
+
+        kst = 0
+        do ist = 1, nstates
+          do jst = ist, nstates
+            if (ist == jst) then
+              grad(:,:) = grad + unrelDp(ii,ist) &
+                  & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(ist,ib) &
+                  & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,ist,ib) )
+            else
+              kst = kst + 1
+              ! <PPS|OSS> = <OSS|PPS>, etc
+              grad(:,:) = grad + unrelTdp(ii,kst) &
+                  & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(jst,ib) &
+                  & + eigvecsSSRderiv(:,:,jst,ia) * eigvecsSSR(ist,ib) &
+                  & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,jst,ib) &
+                  & + eigvecsSSR(jst,ia) * eigvecsSSRderiv(:,:,ist,ib) )
+            end if
+          end do
+        end do
+
+      end do
+    end if
 
     contains
 
