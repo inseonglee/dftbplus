@@ -49,8 +49,8 @@ module dftbp_reks_reksinterface
       & getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
-      & getunrelaxeddensmatandtdp, gettdpparameters, getdipoleintegral, getdipolemomentmatrix,&
-      & getreksosc
+      & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, getdipoleintegral,&
+      & getdipolemomentmatrix, getreksosc
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -421,6 +421,8 @@ module dftbp_reks_reksinterface
             & this%weightIL, this%Nc, this%Lstate, this%reksAlg, this%Lpaired,&
             & this%tSSR, this%tranOcc, this%preTdp, this%unrelDp, this%unrelTdp,&
             & dipoleInt, densityMatrix, errStatus)
+        call buildTdpVectors(dipoleInt, this%tranOcc, this%preTdp, this%omega, &
+            & this%G1, this%Nc, this%Na, this%reksAlg, this%XTtdp, this%symTdpVec)
       end if
 
       if (this%tNAC) then

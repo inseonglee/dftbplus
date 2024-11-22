@@ -557,6 +557,12 @@ module dftbp_reks_reksvar
     !> unrelaxed transition dipole moment between SA-REKS states
     real(dp), allocatable :: unrelTdp(:,:)
 
+    !> transition dipole vector used for TDP gradient
+    real(dp), allocatable :: XTtdp(:,:,:)
+
+    !> symmetric part of transition dipole vector for gradients of TDP
+    real(dp), allocatable :: symTdpVec(:,:,:,:)
+
 
     !> REKS: point charges (QM/MM) variables
 
@@ -958,6 +964,8 @@ module dftbp_reks_reksvar
         allocate(this%unrelDp(3,nstates))
         allocate(this%unrelTdp(3,nstHalf))
       end if
+      allocate(this%XTtdp(superN,3,nstHalf))
+      allocate(this%symTdpVec(nOrb,nOrb,3,nstHalf))
     end if
 
     if (this%tForces) then
@@ -1168,6 +1176,8 @@ module dftbp_reks_reksvar
         this%unrelDp(:,:) = 0.0_dp
         this%unrelTdp(:,:) = 0.0_dp
       end if
+      this%XTtdp(:,:,:) = 0.0_dp
+      this%symTdpVec(:,:,:,:) = 0.0_dp
     end if
 
     if (this%tForces) then

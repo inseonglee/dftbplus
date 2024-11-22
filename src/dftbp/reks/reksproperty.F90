@@ -32,7 +32,7 @@ module dftbp_reks_reksproperty
 
   private
   public :: getUnrelaxedDensMatAndTdp, getRelaxedDensMat, getRelaxedDensMatL
-  public :: getTdpParameters
+  public :: getTdpParameters, buildTdpVectors
   public :: getDipoleIntegral, getDipoleMomentMatrix, getReksOsc
 
   contains
@@ -766,6 +766,87 @@ module dftbp_reks_reksproperty
     end do
 
   end subroutine getTdpParameters
+
+
+  !> Calculate X^T vector for transition dipoles between SA-REKS or SSR states
+  subroutine buildTdpVectors(dipoleInt, tranOcc, preTdp, omega, G1, Nc, Na, &
+      & reksAlg, XTtdp, symTdpVec)
+
+    !> dipole integral in DFTB formalism
+    real(dp), intent(in) :: dipoleInt(:,:,:)
+
+    !> transition occupation matrix for transition dipole between SSR or SA-REKS states
+    real(dp), intent(in) :: tranOcc(:,:,:)
+
+    !> prefactor before the derivatives of FONs with dipole integral
+    real(dp), intent(in) :: preTdp(:,:)
+
+    !> anti-symmetric matrices originated from Hamiltonians
+    real(dp), intent(in) :: omega(:)
+
+    !> constant calculated from hessian and energy of microstates
+    real(dp), intent(in) :: G1
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Number of active orbitals
+    integer, intent(in) :: Na
+
+    !> Type of REKS calculations
+    integer, intent(in) :: reksAlg
+
+    !> transition dipole vector used for TDP gradient
+    real(dp), intent(inout) :: XTtdp(:,:,:)
+
+    !> symmetric part of transition dipole vector for gradients of TDP
+    real(dp), intent(inout) :: symTdpVec(:,:,:,:)
+
+    real(dp), allocatable :: tmpMat1(:,:)
+    real(dp), allocatable :: tmpMat2(:,:)
+
+    real(dp) :: tmp1, tmp2
+    integer :: nOrb, superN, nstHalf, Nv
+    integer :: ii, ij, i, j, ist
+
+    nOrb = size(tranOcc,dim=1)
+    superN = size(XTtdp,dim=1)
+    nstHalf = size(XTtdp,dim=3)
+    Nv = nOrb - Nc - Na
+
+    allocate(tmpMat1(nOrb,nOrb))
+    allocate(tmpMat2(nOrb,nOrb))
+
+    XTtdp(:,:,:) = 0.0_dp
+    do ist = 1, nstHalf
+      do ii = 1, 3
+
+        call gemm(tmpMat1, dipoleInt(:,:,ii), tranOcc(:,:,ist))
+        call gemm(tmpMat2, tranOcc(:,:,ist), dipoleInt(:,:,ii))
+
+        do ij = 1, superN
+          ! assign index i and j from ij
+          call assignIndex(Nc, Na, Nv, reksAlg, ij, i, j)
+          tmp1 = 0.5_dp * (tmpMat1(i,j) - tmpMat1(j,i))
+          tmp2 = 0.5_dp * (tmpMat2(i,j) - tmpMat2(j,i))
+          XTtdp(ij,ii,ist) = -(tmp1 - tmp2)
+        end do
+
+        symTdpVec(:,:,ii,ist) = 0.25_dp * (tmpMat1 + transpose(tmpMat1) &
+            & + tmpMat2 + transpose(tmpMat2))
+
+      end do
+    end do
+
+    do ist = 1, nstHalf
+      do ii = 1, 3
+        do ij = 1, superN
+          XTtdp(ij,ii,ist) = XTtdp(ij,ii,ist) - G1*omega(ij)*preTdp(ii,ist)
+        end do
+      end do
+    end do
+
+  end subroutine buildTdpVectors
 
 
   !> Calculate dipole integral in DFTB formalism
