@@ -50,7 +50,7 @@ module dftbp_reks_reksinterface
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
       & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, getssrcoefderiv,&
-      & tdpshift, getdipoleintegral, getdipolemomentmatrix, getreksosc
+      & tdpshift, addcoeftograd, getdipoleintegral, getdipolemomentmatrix, getreksosc
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -542,12 +542,6 @@ module dftbp_reks_reksinterface
 
       if (this%tTDPgrad) then
 
-        ! To evaulate the derivative of SSR state coefficients, SAgrad and SIgrad are needed
-        if (this%tSSR) then
-          call getSsrCoefDeriv(this%energy, this%eigvecsSSR, this%SAgrad,&
-              & this%SIgrad, this%eigvecsSSRderiv)
-        end if
-
         ! transition dipole calculations
         do ist = 1, nstHalf
 
@@ -567,11 +561,10 @@ module dftbp_reks_reksinterface
                 & this%ZmatL, this%Q1mat, this%Q2mat, optionQMMM=.false.)
             Qmat(:,:) = this%Q1mat + this%Q2mat
             call TDPshift(denseDesc%iAtomStart, eigenvecs, over, coord0, orb%mOrb, Qmat,&
-                & this%symTdpVec(:,:,ii,ist), this%gradL, this%preTdp(:,ist), this%unrelDp,&
-                & this%unrelTdp, this%eigvecsSSR, this%eigvecsSSRderiv, this%Sderiv,&
+                & this%symTdpVec(:,:,ii,ist), this%gradL, this%preTdp(:,ist), this%Sderiv,&
                 & this%unrelTdm(:,:,ist), this%ZTtdp(:,ii,ist), this%SAweight, this%omega,&
                 & this%weightIL, this%G1, this%getDenseAO, this%getAtomIndex, ii,&
-                & this%tSSR, this%TDPgrad(:,:,ii,ist))
+                & this%TDPgrad(:,:,ii,ist))
 
           end do
         end do
@@ -587,6 +580,22 @@ module dftbp_reks_reksinterface
 
       ! set final gradient to derivs in SA-REKS or SSR case
       call setReksGradients_(derivs, this)
+
+      if (this%tTDPgrad) then
+
+        ! To evaulate the derivative of SSR state coefficients, SAgrad and SIgrad are needed
+        if (this%tSSR) then
+          call getSsrCoefDeriv(this%energy, this%eigvecsSSR, this%SAgrad,&
+              & this%SIgrad, this%eigvecsSSRderiv)
+          do ist = 1, nstHalf
+            do ii = 1, 3
+              call addCoefToGrad(this%unrelDp, this%unrelTdp, this%eigvecsSSR,&
+                  & this%eigvecsSSRderiv, ii, this%TDPgrad(:,:,ii,ist))
+            end do
+          end do
+        end if
+
+      end if
 
     end if
 

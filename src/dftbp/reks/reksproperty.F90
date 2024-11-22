@@ -32,7 +32,7 @@ module dftbp_reks_reksproperty
 
   private
   public :: getUnrelaxedDensMatAndTdp, getRelaxedDensMat, getRelaxedDensMatL
-  public :: getTdpParameters, buildTdpVectors, getSsrCoefDeriv, TDPshift
+  public :: getTdpParameters, buildTdpVectors, getSsrCoefDeriv, TDPshift, addCoefToGrad
   public :: getDipoleIntegral, getDipoleMomentMatrix, getReksOsc
 
   contains
@@ -953,10 +953,10 @@ module dftbp_reks_reksproperty
   end subroutine getSsrCoefDeriv
 
 
-  !> Calculate TDP gradient except RT shift term
+  !> Calculate TDP gradient except R*T shift and coefficient derivative terms
   subroutine TDPshift(iSquare, eigenvecs, over, coord0, mOrb, Qmat, symTdpVec, gradL,&
-      & preTdp, unrelDp, unrelTdp, eigvecsSSR, eigvecsSSRderiv, Sderiv, unrelTdm, ZTtdp,&
-      & SAweight, omega, weightIL, G1, getDenseAO, getAtomIndex, ii, tSSR, grad)
+      & preTdp, Sderiv, unrelTdm, ZTtdp, SAweight, omega, weightIL, G1, getDenseAO, &
+      &getAtomIndex, ii, grad)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -984,18 +984,6 @@ module dftbp_reks_reksproperty
 
     !> prefactor before the derivatives of FONs with dipole integral
     real(dp), intent(in) :: preTdp(:)
-
-    !> unrelaxed dipole moment for SA-REKS state
-    real(dp), allocatable, intent(in) :: unrelDp(:,:)
-
-    !> unrelaxed transition dipole moment between SA-REKS states
-    real(dp), allocatable, intent(in) :: unrelTdp(:,:)
-
-    !> eigenvectors from SA-REKS state
-    real(dp), intent(in) :: eigvecsSSR(:,:)
-
-    !> derivatives of eigenvectors from SA-REKS state
-    real(dp), allocatable, intent(in) :: eigvecsSSRderiv(:,:,:,:)
 
     !> Dense overlap derivative in AO basis
     real(dp), intent(in) :: Sderiv(:,:,:)
@@ -1027,10 +1015,7 @@ module dftbp_reks_reksproperty
     !> Current index for x, y, z axis
     integer, intent(in) :: ii
 
-    !> Calculate SSR state with inclusion of SI, otherwise calculate SA-REKS state
-    logical, intent(in) :: tSSR
-
-    !> all gradient components except R*T shift term
+    !> all gradient components except R*T shift and coefficient derivative terms
     real(dp), intent(out) :: grad(:,:)
 
     real(dp), allocatable :: tmpMat(:,:)
@@ -1039,14 +1024,11 @@ module dftbp_reks_reksproperty
     real(dp) :: tmpValue, tmpR, derivTmp
     integer :: iL, Lmax, nOrb, nAtom, sparseSize
     integer :: mu, nu, iAtom, iAtom1, iAtom2, l
-    integer :: ist, jst, kst, lst, ia, ib, nstates, nstHalf
 
     Lmax = size(weightIL,dim=1)
     nOrb = size(Sderiv,dim=1)
     nAtom = size(gradL,dim=2)
     sparseSize = size(getDenseAO,dim=1)
-    nstates = size(eigvecsSSR,dim=1)
-    nstHalf = nstates * (nstates - 1) / 2
 
     allocate(tmpMat(nOrb,nOrb))
     allocate(Rderiv(sparseSize))
@@ -1127,34 +1109,6 @@ module dftbp_reks_reksproperty
 
     end do
 
-    ! coefficient derivative terms with unrelaxed (transition) dipole
-    if (tSSR) then
-      do lst = 1, nstHalf
-
-        call getTwoIndices(nstates, lst, ia, ib, 1)
-
-        kst = 0
-        do ist = 1, nstates
-          do jst = ist, nstates
-            if (ist == jst) then
-              grad(:,:) = grad + unrelDp(ii,ist) &
-                  & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(ist,ib) &
-                  & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,ist,ib) )
-            else
-              kst = kst + 1
-              ! <PPS|OSS> = <OSS|PPS>, etc
-              grad(:,:) = grad + unrelTdp(ii,kst) &
-                  & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(jst,ib) &
-                  & + eigvecsSSRderiv(:,:,jst,ia) * eigvecsSSR(ist,ib) &
-                  & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,jst,ib) &
-                  & + eigvecsSSR(jst,ia) * eigvecsSSRderiv(:,:,ist,ib) )
-            end if
-          end do
-        end do
-
-      end do
-    end if
-
     contains
 
       ! TODO : This routine is temporary, must be modified!
@@ -1226,6 +1180,60 @@ module dftbp_reks_reksproperty
       end subroutine shiftQSgrad_
 
   end subroutine TDPshift
+
+
+  !> Add contribution of coefficient derivatives to TDP gradient
+  subroutine addCoefToGrad(unrelDp, unrelTdp, eigvecsSSR, eigvecsSSRderiv, ii, grad)
+
+    !> unrelaxed dipole moment for SA-REKS state
+    real(dp), intent(in) :: unrelDp(:,:)
+
+    !> unrelaxed transition dipole moment between SA-REKS states
+    real(dp), intent(in) :: unrelTdp(:,:)
+
+    !> eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSR(:,:)
+
+    !> derivatives of eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSRderiv(:,:,:,:)
+
+    !> Current index for x, y, z axis
+    integer, intent(in) :: ii
+
+    !> final gradient for transition dipoles
+    real(dp), intent(inout) :: grad(:,:)
+
+    integer :: ist, jst, kst, lst, ia, ib, nstates, nstHalf
+
+    nstates = size(eigvecsSSR,dim=1)
+    nstHalf = nstates * (nstates - 1) / 2
+
+    do lst = 1, nstHalf
+
+      call getTwoIndices(nstates, lst, ia, ib, 1)
+
+      kst = 0
+      do ist = 1, nstates
+        do jst = ist, nstates
+          if (ist == jst) then
+            grad(:,:) = grad + unrelDp(ii,ist) &
+                & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(ist,ib) &
+                & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,ist,ib) )
+          else
+            kst = kst + 1
+            ! <PPS|OSS> = <OSS|PPS>, etc
+            grad(:,:) = grad + unrelTdp(ii,kst) &
+                & * ( eigvecsSSRderiv(:,:,ist,ia) * eigvecsSSR(jst,ib) &
+                & + eigvecsSSRderiv(:,:,jst,ia) * eigvecsSSR(ist,ib) &
+                & + eigvecsSSR(ist,ia) * eigvecsSSRderiv(:,:,jst,ib) &
+                & + eigvecsSSR(jst,ia) * eigvecsSSRderiv(:,:,ist,ib) )
+          end if
+        end do
+      end do
+
+    end do
+
+  end subroutine addCoefToGrad
 
 
   !> Calculate dipole integral in DFTB formalism
