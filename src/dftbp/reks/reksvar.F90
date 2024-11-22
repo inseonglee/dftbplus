@@ -569,6 +569,9 @@ module dftbp_reks_reksvar
     !> auxiliary matrix in AO basis related to transition dipole term
     real(dp), allocatable :: RtdpL(:,:,:,:,:)
 
+    !> gradient of transition dipole moment
+    real(dp), allocatable :: TDPgrad(:,:,:,:)
+
 
     !> REKS: point charges (QM/MM) variables
 
@@ -974,6 +977,7 @@ module dftbp_reks_reksvar
       allocate(this%symTdpVec(nOrb,nOrb,3,nstHalf))
       allocate(this%ZTtdp(superN,3,nstHalf))
       allocate(this%RtdpL(nOrb,nOrb,LmaxR,3,nstHalf))
+      allocate(this%TDPgrad(3,nAtom,3,nstHalf))
     end if
 
     if (this%tForces) then
@@ -1188,6 +1192,7 @@ module dftbp_reks_reksvar
       this%symTdpVec(:,:,:,:) = 0.0_dp
       this%ZTtdp(:,:,:) = 0.0_dp
       this%RtdpL(:,:,:,:,:) = 0.0_dp
+      this%TDPgrad(:,:,:,:) = 0.0_dp
     end if
 
     if (this%tForces) then

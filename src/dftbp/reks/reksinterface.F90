@@ -49,8 +49,8 @@ module dftbp_reks_reksinterface
       & getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
-      & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, getdipoleintegral,&
-      & getdipolemomentmatrix, getreksosc
+      & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, tdpshift,&
+      & getdipoleintegral, getdipolemomentmatrix, getreksosc
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -560,6 +560,11 @@ module dftbp_reks_reksinterface
                 & this%XTtdp(:,ii,ist), this%ZTtdp(:,ii,ist), this%RtdpL(:,:,:,ii,ist), &
                 & this%ZmatL, this%Q1mat, this%Q2mat, optionQMMM=.false.)
             Qmat(:,:) = this%Q1mat + this%Q2mat
+            call TDPshift(denseDesc%iAtomStart, eigenvecs, over, coord0, orb%mOrb, Qmat,&
+                & this%symTdpVec(:,:,ii,ist), this%gradL, this%preTdp(:,ist), this%Sderiv,&
+                & this%unrelTdm(:,:,ist), this%ZTtdp(:,ii,ist), this%SAweight, this%omega,&
+                & this%weightIL, this%G1, this%getDenseAO, this%getAtomIndex, ii,&
+                & this%TDPgrad(:,:,ii,ist))
 
           end do
         end do

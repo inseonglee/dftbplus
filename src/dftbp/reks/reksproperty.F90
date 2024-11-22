@@ -24,7 +24,7 @@ module dftbp_reks_reksproperty
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_matrixops, only : adjointLowerTriangle
   use dftbp_reks_rekscommon, only : getTwoIndices, qm2udL, ud2qmL, matAO2MO,&
-      & assignFilling, assignIndex
+      & matMO2AO, assignFilling, assignIndex
   use dftbp_reks_reksio, only : printRelaxedFONs, printRelaxedFONsL, printUnrelaxedFONs
   use dftbp_reks_reksvar, only : reksTypes
 
@@ -32,7 +32,7 @@ module dftbp_reks_reksproperty
 
   private
   public :: getUnrelaxedDensMatAndTdp, getRelaxedDensMat, getRelaxedDensMatL
-  public :: getTdpParameters, buildTdpVectors
+  public :: getTdpParameters, buildTdpVectors, TDPshift
   public :: getDipoleIntegral, getDipoleMomentMatrix, getReksOsc
 
   contains
@@ -847,6 +847,234 @@ module dftbp_reks_reksproperty
     end do
 
   end subroutine buildTdpVectors
+
+
+  !> Calculate TDP gradient except RT shift and SSR state coefficients terms
+  subroutine TDPshift(iSquare, eigenvecs, over, coord0, mOrb, Qmat, symTdpVec, gradL,&
+      & preTdp, Sderiv, unrelTdm, ZTtdp, SAweight, omega, weightIL, G1, getDenseAO,&
+      & getAtomIndex, ii, grad)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Eigenvectors on eixt
+    real(dp), intent(in) :: eigenvecs(:,:,:)
+
+    !> sparse overlap matrix
+    real(dp), intent(in) :: over(:)
+
+    !> central cell coordinates
+    real(dp), intent(in) :: coord0(:,:)
+
+    !> Max. nr. of orbitals for any species
+    integer, intent(in) :: mOrb
+
+    !> auxiliary matrix in AO basis related to transition dipole term
+    real(dp), intent(inout) :: Qmat(:,:)
+
+    !> symmetric part of transition dipole vector for gradients of TDP
+    real(dp), intent(inout) :: symTdpVec(:,:)
+
+    !> gradients for each microstate except orbital derivative terms
+    real(dp), intent(in) :: gradL(:,:,:)
+
+    !> prefactor before the derivatives of FONs with dipole integral
+    real(dp), intent(in) :: preTdp(:)
+
+    !> Dense overlap derivative in AO basis
+    real(dp), intent(in) :: Sderiv(:,:,:)
+
+    !> unrelaxed transition density matrix between SSR or SA-REKS states
+    real(dp), intent(in) :: unrelTdm(:,:)
+
+    !> solution of A * Z = X equation with X is XTtdp
+    real(dp), intent(in) :: ZTtdp(:)
+
+    !> Weights used in state-averaging
+    real(dp), intent(in) :: SAweight(:)
+
+    !> anti-symmetric matrices originated from Hamiltonians
+    real(dp), intent(in) :: omega(:)
+
+    !> modified weight of each microstate
+    real(dp), intent(in) :: weightIL(:)
+
+    !> constant calculated from hessian and energy of microstates
+    real(dp), intent(in) :: G1
+
+    !> get dense AO index from sparse AO array
+    integer, intent(in) :: getDenseAO(:,:)
+
+    !> get atom index from AO index
+    integer, intent(in) :: getAtomIndex(:)
+
+    !> Current index for x, y, z axis
+    integer, intent(in) :: ii
+
+    !> all gradient components except R*T shift term
+    real(dp), intent(out) :: grad(:,:)
+
+    real(dp), allocatable :: tmpMat(:,:)
+    real(dp), allocatable :: Rderiv(:)
+
+    real(dp) :: tmpValue, tmpR, derivTmp
+    integer :: iL, Lmax, nOrb, nAtom, sparseSize
+    integer :: mu, nu, iAtom, iAtom1, iAtom2, l
+
+    Lmax = size(weightIL,dim=1)
+    nOrb = size(Sderiv,dim=1)
+    nAtom = size(gradL,dim=2)
+    sparseSize = size(getDenseAO,dim=1)
+
+    allocate(tmpMat(nOrb,nOrb))
+    allocate(Rderiv(sparseSize))
+
+    call matMO2AO(Qmat, eigenvecs(:,:,1))
+    call matMO2AO(symTdpVec, eigenvecs(:,:,1))
+
+    tmpValue = sum(ZTtdp(:)*omega(:))
+    ! energy derivative term originating from orbital response
+    grad(:,:) = 0.0_dp
+    do iL = 1, Lmax
+      grad(:,:) = grad - gradL(:,:,iL) * &
+          & SAweight(1)*G1*weightIL(iL)*tmpValue
+    end do
+    ! Q * S_deriv term originating from orbital response
+    call shiftQSgrad_(Qmat + transpose(Qmat), Sderiv, -1.0_dp, iSquare, mOrb, grad)
+
+    ! symmetric TDP * S_deriv term originating from orbital response
+    call shiftQSgrad_(symTdpVec, Sderiv, 2.0_dp, iSquare, mOrb, grad)
+
+    ! energy derivative terms originating from FON derivatives
+    do iL = 1, Lmax
+      grad(:,:) = grad + gradL(:,:,iL) * G1*weightIL(iL)*preTdp(ii)
+    end do
+
+    ! unrelaxed transition density * overlap * coordinates term; overlap derivative
+    tmpMat(:,:) = 0.0_dp
+    do mu = 1, nOrb
+      do nu = 1, nOrb
+        ! find proper atom index
+        iAtom1 = getAtomIndex(mu)
+        iAtom2 = getAtomIndex(nu)
+        tmpMat(mu,nu) = 0.5_dp * unrelTdm(mu,nu) * (coord0(ii,iAtom1) + coord0(ii,iAtom2))
+      end do
+    end do
+    call shiftQSgrad_(tmpMat + transpose(tmpMat), Sderiv, 1.0_dp, iSquare, mOrb, grad)
+
+    ! unrelaxed transition density * overlap * coordinates term; coordinate derivative
+    tmpMat(:,:) = unrelTdm + transpose(unrelTdm)
+    do mu = 1, nOrb
+      tmpMat(mu,mu) = unrelTdm(mu,mu)
+    end do
+    do iAtom = 1, nAtom
+
+      Rderiv(:) = 0.0_dp
+      do l = 1, sparseSize
+
+        ! set the AO indices with respect to sparsity
+        mu = getDenseAO(l,1)
+        nu = getDenseAO(l,2)
+        ! find proper atom index
+        iAtom1 = getAtomIndex(mu)
+        iAtom2 = getAtomIndex(nu)
+
+        if (mu <= nu) then
+          if (abs(over(l)) >= epsilon(1.0_dp)) then
+
+            tmpR = 0.0_dp
+            ! mu in alpha
+            if (iAtom1 == iAtom) then
+              tmpR = tmpR + 1.0_dp
+            end if
+            ! nu in alpha
+            if (iAtom2 == iAtom) then
+              tmpR = tmpR + 1.0_dp
+            end if
+
+            ! calculate the contribution of position derivatives to Rderiv
+            Rderiv(l) = Rderiv(l) + 0.5_dp*tmpR*tmpMat(mu,nu)
+
+          end if
+        end if
+
+      end do
+      derivTmp = sum(over(:)*Rderiv(:))
+      grad(ii,iAtom) = grad(ii,iAtom) + derivTmp
+
+    end do
+
+    contains
+
+      ! TODO : This routine is temporary, must be modified!
+      !> Calculate Q*S gradient contribution
+      subroutine shiftQSgrad_(Qmat, Sderiv, fac, iSquare, mOrb, deriv)
+
+        !> auxiliary matrix in AO basis related to SA-REKS term
+        real(dp), intent(in) :: Qmat(:,:)
+
+        !> Dense overlap derivative in AO basis
+        real(dp), intent(in) :: Sderiv(:,:,:)
+
+        !> factor of Q*S term, for SI term it becomes -1 otherwise 1
+        real(dp), intent(in) :: fac
+
+        !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+        integer, intent(in) :: iSquare(:)
+
+        !> Max. nr. of orbitals for any species
+        integer, intent(in) :: mOrb
+
+        !> gradient contribution from tr(Q*S)
+        real(dp), intent(inout) :: deriv(:,:)
+
+        real(dp), allocatable :: sqrQtmp(:,:)
+        real(dp), allocatable :: sqrStmp(:,:,:)
+
+        real(dp) :: derivTmp(3)
+        integer :: iAtom1, nOrb1, iAtom2, nOrb2, ii
+        integer :: nAtom, nAO1, nAO2, iOrb1, iOrb2
+
+        nAtom = size(deriv,dim=2)
+
+        allocate(sqrQtmp(mOrb,mOrb))
+        allocate(sqrStmp(mOrb,mOrb,3))
+
+        do iAtom1 = 1, nAtom
+          nOrb1 = iSquare(iAtom1+1) - iSquare(iAtom1)
+          nAO1 = iSquare(iAtom1) - 1
+          do iAtom2 = iAtom1, nAtom
+            nOrb2 = iSquare(iAtom2+1) - iSquare(iAtom2)
+            nAO2 = iSquare(iAtom2) - 1
+            if (iAtom1 /= iAtom2) then
+
+              sqrQtmp(:,:) = 0.0_dp
+              sqrStmp(:,:,:) = 0.0_dp
+              do iOrb1 = 1, nOrb1
+                do iOrb2 = 1, nOrb2
+                  sqrQtmp(iOrb2,iOrb1) = Qmat(nAO2+iOrb2,nAO1+iOrb1)
+                  do ii = 1, 3
+                    sqrStmp(iOrb2,iOrb1,ii) = Sderiv(nAO2+iOrb2,nAO1+iOrb1,ii)
+                  end do
+                end do
+              end do
+
+              derivTmp(:) = 0.0_dp
+              do ii = 1, 3
+                derivTmp(ii) = sum(sqrQtmp(1:nOrb2,1:nOrb1)*sqrStmp(1:nOrb2,1:nOrb1,ii))
+              end do
+
+              ! forces from atom 1 on atom 2f and 2f onto 1
+              deriv(:,iAtom1) = deriv(:,iAtom1) + fac*derivTmp(:)
+              deriv(:,iAtom2) = deriv(:,iAtom2) - fac*derivTmp(:)
+
+            end if
+          end do
+        end do
+
+      end subroutine shiftQSgrad_
+
+  end subroutine TDPshift
 
 
   !> Calculate dipole integral in DFTB formalism
