@@ -49,8 +49,8 @@ module dftbp_reks_reksinterface
       & getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
-      & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, tdpshift,&
-      & getdipoleintegral, getdipolemomentmatrix, getreksosc
+      & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, getssrcoefderiv,&
+      & tdpshift, getdipoleintegral, getdipolemomentmatrix, getreksosc
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -541,6 +541,12 @@ module dftbp_reks_reksinterface
       end if
 
       if (this%tTDPgrad) then
+
+        ! To evaulate the derivative of SSR state coefficients, SAgrad and SIgrad are needed
+        if (this%tSSR) then
+          call getSsrCoefDeriv(this%energy, this%eigvecsSSR, this%SAgrad,&
+              & this%SIgrad, this%eigvecsSSRderiv)
+        end if
 
         ! transition dipole calculations
         do ist = 1, nstHalf

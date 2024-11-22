@@ -32,7 +32,7 @@ module dftbp_reks_reksproperty
 
   private
   public :: getUnrelaxedDensMatAndTdp, getRelaxedDensMat, getRelaxedDensMatL
-  public :: getTdpParameters, buildTdpVectors, TDPshift
+  public :: getTdpParameters, buildTdpVectors, getSsrCoefDeriv, TDPshift
   public :: getDipoleIntegral, getDipoleMomentMatrix, getReksOsc
 
   contains
@@ -847,6 +847,110 @@ module dftbp_reks_reksproperty
     end do
 
   end subroutine buildTdpVectors
+
+
+  ! TODO : Currently, only 2 state problem can be solved analytically
+  subroutine getSsrCoefDeriv(energy, eigvecsSSR, SAgrad, SIgrad, eigvecsSSRderiv)
+
+    !> energy of states
+    real(dp), intent(in) :: energy(:)
+
+    !> eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSR(:,:)
+
+    !> gradient of SA-REKS state
+    real(dp), intent(in) :: SAgrad(:,:,:)
+
+    !> gradient of state-interaction term
+    real(dp), intent(in) :: SIgrad(:,:,:)
+
+    !> derivatives of eigenvectors from SA-REKS state
+    real(dp), intent(out) :: eigvecsSSRderiv(:,:,:,:)
+
+    real(dp), allocatable :: tmpEn(:,:)
+    real(dp), allocatable :: tmpHam(:,:)
+    real(dp), allocatable :: gVec22(:,:)
+    real(dp), allocatable :: hVec22(:,:)
+    real(dp), allocatable :: phaseDeriv(:,:)
+    real(dp), allocatable :: tmpDeriv(:,:)
+
+    real(dp) :: tmpValue1, tmpValue2
+    integer :: ist, nstates, nAtom
+
+    nstates = size(eigvecsSSR,dim=1)
+    nAtom = size(SAgrad,dim=2)
+
+    allocate(tmpEn(nstates,nstates))
+    allocate(tmpHam(nstates,nstates))
+    if (nstates == 2) then
+      allocate(gVec22(3,nAtom))
+      allocate(hVec22(3,nAtom))
+      allocate(phaseDeriv(3,nAtom))
+      allocate(tmpDeriv(3,nAtom))
+    end if
+
+    ! Obtain diabatic Hamiltonian matrix from energy and eigvecsSSR; H * U = U * E
+    tmpEn(:,:) = 0.0_dp
+    do ist = 1, nstates
+      tmpEn(ist,ist) = energy(ist)
+    end do
+    tmpHam(:,:) = matmul(eigvecsSSR,matmul(tmpEn,transpose(eigvecsSSR)))
+
+    ! Initialize the derivatives for SSR coefficients
+    eigvecsSSRderiv(:,:,:,:) = 0.0_dp
+
+    if (nstates == 2) then
+
+      ! For 2 state SSR case, determinant becomes zero due to symmetry
+      ! Thus, we directly calculate the root of quadratic equation
+      ! derived from the determinant equation
+
+      gVec22(:,:) = 0.0_dp
+      gVec22(:,:) = SAgrad(:,:,1) - SAgrad(:,:,2)
+
+      hVec22(:,:) = 0.0_dp
+      hVec22(:,:) = SIgrad(:,:,1)
+
+      phaseDeriv(:,:) = 0.0_dp
+
+      ! first contribution
+      tmpValue1 = 0.5_dp / tmpHam(1,2)
+      tmpValue2 = 0.5_dp * (tmpHam(1,1) - tmpHam(2,2)) / tmpHam(1,2)**2
+
+      tmpDeriv(:,:) = 0.0_dp
+      tmpDeriv(:,:) = (gVec22 * tmpValue1 - tmpValue2 * hVec22)
+
+      phaseDeriv(:,:) = phaseDeriv + eigvecsSSR(1,1)**2 * tmpDeriv
+
+      ! second contribution - 1
+      tmpValue1 = 2.0_dp * (tmpHam(1,1) - tmpHam(2,2))
+      tmpValue2 = 8.0_dp * tmpHam(1,2)
+
+      tmpDeriv(:,:) = 0.0_dp
+      tmpDeriv(:,:) = tmpValue1 * gVec22 + tmpValue2 * hVec22
+
+      tmpValue1 = 0.25_dp / tmpHam(1,2)
+      tmpValue2 = 1.0_dp / sqrt( (tmpHam(1,1) - tmpHam(2,2))**2 + 4.0_dp * tmpHam(1,2)**2 )
+
+      phaseDeriv(:,:) = phaseDeriv + eigvecsSSR(1,1)**2 * tmpValue1 * tmpValue2 * tmpDeriv
+
+      ! second contribution - 2
+      tmpValue1 = sqrt( (tmpHam(1,1) - tmpHam(2,2))**2 + 4.0_dp * tmpHam(1,2)**2 )
+      tmpValue2 = -0.5_dp / tmpHam(1,2)**2
+
+      tmpDeriv(:,:) = 0.0_dp
+      tmpDeriv(:,:) = tmpValue1 * tmpValue2 * hVec22
+
+      phaseDeriv(:,:) = phaseDeriv + eigvecsSSR(1,1)**2 * tmpDeriv
+
+      eigvecsSSRderiv(:,:,1,1) = - eigvecsSSR(1,2) * phaseDeriv
+      eigvecsSSRderiv(:,:,1,2) = eigvecsSSR(1,1) * phaseDeriv
+      eigvecsSSRderiv(:,:,2,1) = - eigvecsSSR(1,1) * phaseDeriv
+      eigvecsSSRderiv(:,:,2,2) = - eigvecsSSR(1,2) * phaseDeriv
+
+    end if
+
+  end subroutine getSsrCoefDeriv
 
 
   !> Calculate TDP gradient except RT shift and SSR state coefficients terms

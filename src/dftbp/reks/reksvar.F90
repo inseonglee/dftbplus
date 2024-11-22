@@ -557,6 +557,9 @@ module dftbp_reks_reksvar
     !> unrelaxed transition dipole moment between SA-REKS states
     real(dp), allocatable :: unrelTdp(:,:)
 
+    !> derivatives of eigenvectors from SA-REKS state
+    real(dp), allocatable :: eigvecsSSRderiv(:,:,:,:)
+
     !> transition dipole vector used for TDP gradient
     real(dp), allocatable :: XTtdp(:,:,:)
 
@@ -972,6 +975,7 @@ module dftbp_reks_reksvar
       if (this%tSSR) then
         allocate(this%unrelDp(3,nstates))
         allocate(this%unrelTdp(3,nstHalf))
+        allocate(this%eigvecsSSRderiv(3,nAtom,nstates,nstates))
       end if
       allocate(this%XTtdp(superN,3,nstHalf))
       allocate(this%symTdpVec(nOrb,nOrb,3,nstHalf))
@@ -1187,6 +1191,7 @@ module dftbp_reks_reksvar
       if (this%tSSR) then
         this%unrelDp(:,:) = 0.0_dp
         this%unrelTdp(:,:) = 0.0_dp
+        this%eigvecsSSRderiv(:,:,:,:) = 0.0_dp
       end if
       this%XTtdp(:,:,:) = 0.0_dp
       this%symTdpVec(:,:,:,:) = 0.0_dp
@@ -1429,6 +1434,13 @@ module dftbp_reks_reksvar
         if (this%tTDPgrad) then
           if (.not. this%tTDP) then
             call error("Transition dipole gradient requires calculation of transition dipole moments")
+          end if
+          if (this%tSSR) then
+            if (this%tAllStates) then
+              call error("Transition dipole gradient is not compatible with all SSR states")
+            else if (.not. this%tNAC) then
+              call error("Transition dipole gradient between SSR states requires calculation of nonadiabatic couplings")
+            end if
           end if
         end if
 
