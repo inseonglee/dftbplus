@@ -563,6 +563,12 @@ module dftbp_reks_reksvar
     !> symmetric part of transition dipole vector for gradients of TDP
     real(dp), allocatable :: symTdpVec(:,:,:,:)
 
+    !> solution of A * Z = X equation with X is XTtdp
+    real(dp), allocatable :: ZTtdp(:,:,:)
+
+    !> auxiliary matrix in AO basis related to transition dipole term
+    real(dp), allocatable :: RtdpL(:,:,:,:,:)
+
 
     !> REKS: point charges (QM/MM) variables
 
@@ -966,6 +972,8 @@ module dftbp_reks_reksvar
       end if
       allocate(this%XTtdp(superN,3,nstHalf))
       allocate(this%symTdpVec(nOrb,nOrb,3,nstHalf))
+      allocate(this%ZTtdp(superN,3,nstHalf))
+      allocate(this%RtdpL(nOrb,nOrb,LmaxR,3,nstHalf))
     end if
 
     if (this%tForces) then
@@ -1178,6 +1186,8 @@ module dftbp_reks_reksvar
       end if
       this%XTtdp(:,:,:) = 0.0_dp
       this%symTdpVec(:,:,:,:) = 0.0_dp
+      this%ZTtdp(:,:,:) = 0.0_dp
+      this%RtdpL(:,:,:,:,:) = 0.0_dp
     end if
 
     if (this%tForces) then

@@ -380,7 +380,7 @@ module dftbp_reks_reksinterface
 
     real(dp), allocatable :: Qmat(:,:)
     real(dp), allocatable :: dipoleInt(:,:,:)
-    integer :: ist, ia, ib, nstHalf, fac
+    integer :: ii, ist, ia, ib, nstHalf, fac
 
     nstHalf = this%nstates * (this%nstates-1) / 2
 
@@ -490,7 +490,7 @@ module dftbp_reks_reksinterface
               & 'Solving CP-REKS equation for', this%rstate, 'state vector...'
 
           ! solve CP-REKS equation for SSR state
-          ! save information about ZT, RmatL, ZmatL, Q1mat, Q2mat
+          ! save information about ZT, RmatL
           call solveCpReks_(env, denseDesc, neighbourList, nNeighbourSK, &
               & iSparseStart, img2CentCell, eigenvecs, over, orb, this, &
               & this%XT(:,this%rstate), this%ZT(:,1), this%RmatL(:,:,:,1), &
@@ -515,7 +515,7 @@ module dftbp_reks_reksinterface
           end if
 
           ! solve CP-REKS equation for SA-REKS or L state
-          ! save information about ZT, RmatL, ZmatL, Q1mat, Q2mat
+          ! save information about ZT, RmatL
           call solveCpReks_(env, denseDesc, neighbourList, nNeighbourSK, &
               & iSparseStart, img2CentCell, eigenvecs, over, orb, this, &
               & this%XT(:,1), this%ZT(:,1), this%RmatL(:,:,:,1), &
@@ -537,6 +537,32 @@ module dftbp_reks_reksinterface
               & this%ZT(:,1), this%SAweight, this%omega, this%weightIL, this%G1, &
               & denseDesc%iAtomStart, orb%mOrb, this%Lstate, this%SSRgrad(:,:,1))
         end if
+
+      end if
+
+      if (this%tTDPgrad) then
+
+        ! transition dipole calculations
+        do ist = 1, nstHalf
+
+          call getTwoIndices(this%nstates, ist, ia, ib, 1)
+          write(stdOut,"(A)")
+          write(stdOut,"(A)") repeat("-", 82)
+          write(stdOut,'(1x,a,1x,I2,1x,a,1x,I2,1x,a)') &
+              & 'Solving CP-REKS equation for TDP between', ia, 'and', ib, 'state vectors...'
+
+          do ii = 1, 3
+
+            ! solve CP-REKS equation for transition dipole term
+            ! save information about ZTtdp, RtdpL
+            call solveCpReks_(env, denseDesc, neighbourList, nNeighbourSK, &
+                & iSparseStart, img2CentCell, eigenvecs, over, orb, this, &
+                & this%XTtdp(:,ii,ist), this%ZTtdp(:,ii,ist), this%RtdpL(:,:,:,ii,ist), &
+                & this%ZmatL, this%Q1mat, this%Q2mat, optionQMMM=.false.)
+            Qmat(:,:) = this%Q1mat + this%Q2mat
+
+          end do
+        end do
 
       end if
 
