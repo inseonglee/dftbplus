@@ -545,6 +545,18 @@ module dftbp_reks_reksvar
     !> transition dipole moment between states
     real(dp), allocatable :: tdp(:,:)
 
+    !> transition occupation matrix for transition dipole between SSR or SA-REKS states
+    real(dp), allocatable :: tranOcc(:,:,:)
+
+    !> prefactor before the derivatives of FONs with dipole integral
+    real(dp), allocatable :: preTdp(:,:)
+
+    !> unrelaxed dipole moment for SA-REKS state
+    real(dp), allocatable :: unrelDp(:,:)
+
+    !> unrelaxed transition dipole moment between SA-REKS states
+    real(dp), allocatable :: unrelTdp(:,:)
+
 
     !> REKS: point charges (QM/MM) variables
 
@@ -939,6 +951,15 @@ module dftbp_reks_reksvar
       allocate(this%tdp(3,nstHalf))
     end if
 
+    if (this%tTDPgrad) then
+      allocate(this%tranOcc(nOrb,nOrb,nstHalf))
+      allocate(this%preTdp(3,nstHalf))
+      if (this%tSSR) then
+        allocate(this%unrelDp(3,nstates))
+        allocate(this%unrelTdp(3,nstHalf))
+      end if
+    end if
+
     if (this%tForces) then
 
       ! REKS: point charges (QM/MM) variables
@@ -1138,6 +1159,15 @@ module dftbp_reks_reksvar
 
     if (this%tTDP .and. this%Lstate == 0) then
       this%tdp(:,:) = 0.0_dp
+    end if
+
+    if (this%tTDPgrad) then
+      this%tranOcc(:,:,:) = 0.0_dp
+      this%preTdp(:,:) = 0.0_dp
+      if (this%tSSR) then
+        this%unrelDp(:,:) = 0.0_dp
+        this%unrelTdp(:,:) = 0.0_dp
+      end if
     end if
 
     if (this%tForces) then

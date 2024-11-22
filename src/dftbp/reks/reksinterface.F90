@@ -49,7 +49,8 @@ module dftbp_reks_reksinterface
       & getextchrggradients
   use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
-      & getunrelaxeddensmatandtdp, getdipoleintegral, getdipolemomentmatrix, getreksosc
+      & getunrelaxeddensmatandtdp, gettdpparameters, getdipoleintegral, getdipolemomentmatrix,&
+      & getreksosc
   use dftbp_reks_reksvar, only : TReksCalc, reksTypes
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_orbitals, only : TOrbitals
@@ -275,8 +276,8 @@ module dftbp_reks_reksinterface
   subroutine getReksGradients(env, denseDesc, sccCalc, hybridXc, rsOnsCorr, dispersion,&
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, nonSccDeriv, skHamCont,&
       & skOverCont, repulsive, coord, coord0, species, q0, eigenvecs, chrgForces, over, spinW,&
-      & onSiteElements, derivs, tWriteTagged, autotestTag, taggedWriter, this, errStatus,&
-      & symNeighbourList, nNeighbourCamSym)
+      & onSiteElements, derivs, tWriteTagged, autotestTag, taggedWriter, densityMatrix, this,&
+      & errStatus, symNeighbourList, nNeighbourCamSym)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -336,7 +337,7 @@ module dftbp_reks_reksinterface
     real(dp), intent(in) :: q0(:,:,:)
 
     !> Eigenvectors on eixt
-    real(dp), intent(in) :: eigenvecs(:,:,:)
+    real(dp), intent(inout) :: eigenvecs(:,:,:)
 
     !> forces on external charges
     real(dp), allocatable, intent(inout) :: chrgForces(:,:)
@@ -362,6 +363,9 @@ module dftbp_reks_reksinterface
     !> Tagged writer
     type(TTaggedWriter), intent(inout) :: taggedWriter
 
+    !> Holds density matrix settings and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
+
     !> data type for REKS
     type(TReksCalc), intent(inout) :: this
 
@@ -382,7 +386,7 @@ module dftbp_reks_reksinterface
 
     allocate(Qmat(orb%nOrb,orb%nOrb))
     if (this%tTDPgrad) then
-      allocate(dipoleInt(nOrb,nOrb,3))
+      allocate(dipoleInt(orb%nOrb,orb%nOrb,3))
     end if
 
     ! get the periodic information
@@ -412,6 +416,11 @@ module dftbp_reks_reksinterface
         ! TODO : Only Mulliken term is considered for dipole integral at the moment even though
         !        the onsite integrals are included during SCC iteration
         call getDipoleIntegral(coord0, this%overSqr, this%getAtomIndex, dipoleInt)
+        ! In this routine, dipoleInt is transformed to MO basis
+        call getTdpParameters(eigenvecs, this%eigvecsSSR, this%rhoSqrL, this%FONs,&
+            & this%weightIL, this%Nc, this%Lstate, this%reksAlg, this%Lpaired,&
+            & this%tSSR, this%tranOcc, this%preTdp, this%unrelDp, this%unrelTdp,&
+            & dipoleInt, densityMatrix, errStatus)
       end if
 
       if (this%tNAC) then

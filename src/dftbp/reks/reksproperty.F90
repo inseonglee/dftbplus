@@ -23,7 +23,8 @@ module dftbp_reks_reksproperty
   use dftbp_io_message, only : error
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_matrixops, only : adjointLowerTriangle
-  use dftbp_reks_rekscommon, only : getTwoIndices, qm2udL, ud2qmL, assignFilling, assignIndex
+  use dftbp_reks_rekscommon, only : getTwoIndices, qm2udL, ud2qmL, matAO2MO,&
+      & assignFilling, assignIndex
   use dftbp_reks_reksio, only : printRelaxedFONs, printRelaxedFONsL, printUnrelaxedFONs
   use dftbp_reks_reksvar, only : reksTypes
 
@@ -31,6 +32,7 @@ module dftbp_reks_reksproperty
 
   private
   public :: getUnrelaxedDensMatAndTdp, getRelaxedDensMat, getRelaxedDensMatL
+  public :: getTdpParameters
   public :: getDipoleIntegral, getDipoleMomentMatrix, getReksOsc
 
   contains
@@ -117,12 +119,12 @@ module dftbp_reks_reksproperty
     allocate(tmpMat(nOrb,nOrb))
     allocate(tmpFilling(nOrb,nstates))
 
-    ! core orbitals fillings
+    ! Core orbitals fillings
     tmpFilling(:,:) = 0.0_dp
     do ii = 1, Nc
       tmpFilling(ii,:) = 2.0_dp
     end do
-    ! active orbitals fillings
+    ! Active orbitals fillings
     select case (reksAlg)
     case (reksTypes%noReks)
     case (reksTypes%ssr22)
@@ -131,7 +133,7 @@ module dftbp_reks_reksproperty
       call error("SSR(4,4) is not implemented yet")
     end select
 
-    ! unrelaxed density matrix for SA-REKS or L-th state
+    ! Unrelaxed density matrix for SA-REKS or L-th state
     rhoX(:,:,:) = 0.0_dp
     if (tSSR) then
       do ist = 1, nstates
@@ -150,7 +152,7 @@ module dftbp_reks_reksproperty
       end if
     end if
 
-    ! unrelaxed transition density matrix between SA-REKS states
+    ! Unrelaxed transition density matrix between SA-REKS states
     if (Lstate == 0) then
       rhoXdel(:,:,:) = 0.0_dp
       select case (reksAlg)
@@ -512,6 +514,260 @@ module dftbp_reks_reksproperty
   end subroutine getRelaxedDensMatL
 
 
+  !> Compute necessary parameters for gradients of transidion dipole
+  subroutine getTdpParameters(eigenvecs, eigvecsSSR, rhoSqrL, FONs, weightIL,&
+      & Nc, Lstate, reksAlg, Lpaired, tSSR, tranOcc, preTdp, unrelDp, unrelTdp,&
+      & dipoleInt, densityMatrix, errStatus)
+
+    !> Eigenvectors on eixt
+    real(dp), intent(inout) :: eigenvecs(:,:,:)
+
+    !> eigenvectors from SA-REKS state
+    real(dp), intent(in) :: eigvecsSSR(:,:)
+
+    !> Dense density matrix for each microstate
+    real(dp), intent(in) :: rhoSqrL(:,:,:,:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> modified weight of each microstate
+    real(dp), intent(in) :: weightIL(:)
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Target microstate
+    integer, intent(in) :: Lstate
+
+    !> Type of REKS calculations
+    integer, intent(in) :: reksAlg
+
+    !> Number of spin-paired microstates
+    integer, intent(in) :: Lpaired
+
+    !> Calculate SSR state with inclusion of SI, otherwise calculate SA-REKS state
+    logical, intent(in) :: tSSR
+
+    !> transition occupation matrix for transition dipole between SSR or SA-REKS states
+    real(dp), intent(out) :: tranOcc(:,:,:)
+
+    !> prefactor before the derivatives of FONs with dipole integral
+    real(dp), intent(out) :: preTdp(:,:)
+
+    !> unrelaxed dipole moment for SA-REKS state
+    real(dp), allocatable, intent(inout) :: unrelDp(:,:)
+
+    !> unrelaxed transition dipole moment between SA-REKS states
+    real(dp), allocatable, intent(inout) :: unrelTdp(:,:)
+
+    !> dipole integral in DFTB formalism
+    real(dp), intent(inout) :: dipoleInt(:,:,:)
+
+    !> Holds density matrix settings and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
+
+    !> Status of operation
+    type(TStatus), intent(out) :: errStatus
+
+    real(dp), allocatable :: tmpFilling(:,:)
+    real(dp), allocatable :: tmpMat(:,:,:)
+    real(dp), allocatable :: matX(:,:,:)
+    real(dp), allocatable :: matDel(:,:,:)
+
+    integer :: nOrb, nstates, nstHalf
+    integer :: ii, ist, jst, kst, lst, iOrb, ia, ib
+
+    nOrb = size(eigenvecs,dim=1)
+    nstates = size(eigvecsSSR,dim=1)
+    nstHalf = nstates * (nstates - 1) / 2
+
+    allocate(tmpFilling(nOrb,nstates))
+    allocate(tmpMat(nOrb,nOrb,nstHalf))
+    if (tSSR) then
+      allocate(matX(nOrb,nOrb,nstates))
+    end if
+    if (Lstate == 0) then
+      allocate(matDel(nOrb,nOrb,nstHalf))
+    end if
+
+    ! Common variables
+
+    ! Core orbitals fillings
+    tmpFilling(:,:) = 0.0_dp
+    do iOrb = 1, Nc
+      tmpFilling(iOrb,:) = 2.0_dp
+    end do
+    ! Active orbitals fillings
+    select case (reksAlg)
+    case (reksTypes%noReks)
+    case (reksTypes%ssr22)
+      call getActiveFilling22_(FONs, Nc, tmpFilling)
+    case (reksTypes%ssr44)
+      call error("SSR(4,4) is not implemented yet")
+    end select
+
+    ! Parameters for first contribution to TDP gradient
+
+    ! Convert average fillings for SA-REKS state to matrix
+    if (tSSR) then
+      matX(:,:,:) = 0.0_dp
+      do ist = 1, nstates
+        do iOrb = 1, nOrb
+          matX(iOrb,iOrb,ist) = tmpFilling(iOrb,ist)
+        end do
+      end do
+    end if
+
+    ! Calculate transition occupation matrix between SA-REKS states
+    if (Lstate == 0) then
+      matDel(:,:,:) = 0.0_dp
+      select case (reksAlg)
+      case (reksTypes%noReks)
+      case (reksTypes%ssr22)
+        call getTranOccMat22_(FONs, Nc, nstates, matDel)
+      case (reksTypes%ssr44)
+        call error("SSR(4,4) is not implemented yet")
+      end select
+    end if
+
+    ! Calculate final average occupations for transition dipole
+    if (tSSR) then
+      ! tranOcc is transition occupation matrix between SSR states
+      tranOcc(:,:,:) = 0.0_dp
+      do lst = 1, nstHalf
+
+        call getTwoIndices(nstates, lst, ia, ib, 1)
+
+        kst = 0
+        do ist = 1, nstates
+          do jst = ist, nstates
+            if (ist == jst) then
+              tranOcc(:,:,lst) = tranOcc(:,:,lst) + matX(:,:,ist) &
+                  & * eigvecsSSR(ist,ia) * eigvecsSSR(ist,ib)
+            else
+              kst = kst + 1
+              ! <PPS|OSS> = <OSS|PPS>, etc
+              tranOcc(:,:,lst) = tranOcc(:,:,lst) + matDel(:,:,kst) &
+                  & * ( eigvecsSSR(ist,ia) * eigvecsSSR(jst,ib) &
+                  & + eigvecsSSR(jst,ia) * eigvecsSSR(ist,ib) )
+            end if
+          end do
+        end do
+
+      end do
+    else
+      ! tranOcc is transition occupation matrix between SA-REKS states
+      tranOcc(:,:,:) = matDel
+    end if
+
+    ! Parameters for second contribution to TDP gradient
+
+    ! Density matrix contribution for SA-REKS state
+    if (tSSR) then
+      select case (reksAlg)
+      case (reksTypes%noReks)
+      case (reksTypes%ssr22)
+        call getDensFon22_(rhoSqrL, weightIL, Lpaired, matX)
+      case (reksTypes%ssr44)
+        call error("SSR(4,4) is not implemented yet")
+      end select
+    end if
+
+    ! Density matrix contribution for transitions between SA-REKS states
+    if (Lstate == 0) then
+      matDel(:,:,:) = 0.0_dp
+      select case (reksAlg)
+      case (reksTypes%noReks)
+      case (reksTypes%ssr22)
+        call getTranFon22_(eigenvecs, FONs, Nc, nstates, matDel)
+      case (reksTypes%ssr44)
+        call error("SSR(4,4) is not implemented yet")
+      end select
+    end if
+
+    ! Calculate final density matrix contributions
+    if (tSSR) then
+      tmpMat(:,:,:) = 0.0_dp
+      do lst = 1, nstHalf
+
+        call getTwoIndices(nstates, lst, ia, ib, 1)
+
+        kst = 0
+        do ist = 1, nstates
+          do jst = ist, nstates
+            if (ist == jst) then
+              tmpMat(:,:,lst) = tmpMat(:,:,lst) + matX(:,:,ist) &
+                  & * eigvecsSSR(ist,ia) * eigvecsSSR(ist,ib)
+            else
+              kst = kst + 1
+              ! <PPS|OSS> = <OSS|PPS>, etc
+              tmpMat(:,:,lst) = tmpMat(:,:,lst) + matDel(:,:,kst) &
+                  & * ( eigvecsSSR(ist,ia) * eigvecsSSR(jst,ib) &
+                  & + eigvecsSSR(jst,ia) * eigvecsSSR(ist,ib) )
+            end if
+          end do
+        end do
+
+      end do
+    else
+      tmpMat(:,:,:) = matDel
+    end if
+
+    ! Prefactors from final density matrices with dipole integral
+    preTdp(:,:) = 0.0_dp
+    do lst = 1, nstHalf
+      do ii = 1, 3
+        preTdp(ii,lst) = sum(tmpMat(:,:,lst)*dipoleInt(:,:,ii))
+      end do
+    end do
+
+    ! Parameters for third contribution to TDP gradient
+
+    ! Calculate dipole integral multiplied by SA-REKS or SI density matrix
+    if (tSSR) then
+
+      ! Unrelaxed density matrix for SA-REKS state
+      matX(:,:,:) = 0.0_dp
+      do ist = 1, nstates
+        call densityMatrix%getDensityMatrix(matX(:,:,ist), eigenvecs(:,:,1),&
+            & tmpFilling(:,ist), errStatus)
+        @:PROPAGATE_ERROR(errStatus)
+        call adjointLowerTriangle(matX(:,:,ist))
+      end do
+
+      ! Unrelaxed transition density matrix between SA-REKS states
+      if (Lstate == 0) then
+        matDel(:,:,:) = 0.0_dp
+        select case (reksAlg)
+        case (reksTypes%noReks)
+        case (reksTypes%ssr22)
+          call getUnrelaxedTDM22_(eigenvecs(:,:,1), FONs, Nc, nstates, matDel)
+        case (reksTypes%ssr44)
+          call error("SSR(4,4) is not implemented yet")
+        end select
+      end if
+
+      ! Calculate unrelaxed dipole moment
+      do ist = 1, nstates
+        call getDipoleMomentMatrix(matX(:,:,ist), dipoleInt, unrelDp(:,ist))
+      end do
+
+      ! Calculate unrelaxed transition dipole moment
+      do lst = 1, nstHalf
+        call getDipoleMomentMatrix(matDel(:,:,lst), dipoleInt, unrelTdp(:,lst))
+      end do
+
+    end if
+
+    ! Transform dipole moment integrals in MO basis
+    do ii = 1, 3
+      call matAO2MO(dipoleInt(:,:,ii), eigenvecs(:,:,1))
+    end do
+
+  end subroutine getTdpParameters
+
+
   !> Calculate dipole integral in DFTB formalism
   subroutine getDipoleIntegral(coord0, over, getAtomIndex, dipoleInt)
 
@@ -857,6 +1113,140 @@ module dftbp_reks_reksproperty
     end do
 
   end subroutine getResponseDML22_
+
+
+  !> Calculate transition occupation matrix between SA-REKS states in (2,2) case
+  subroutine getTranOccMat22_(FONs, Nc, nstates, matDel)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Number of states
+    integer, intent(in) :: nstates
+
+    !> temporary transition occupation matrix between SA-REKS states
+    real(dp), intent(inout) :: matDel(:,:,:)
+
+    real(dp) :: n_a, n_b
+    integer :: a, b
+
+    n_a = FONs(1,1)
+    n_b = FONs(2,1)
+    a = Nc + 1
+    b = Nc + 2
+
+    matDel(a,b,1) = sqrt(n_a) - sqrt(n_b)
+    if (nstates == 3) then
+      matDel(a,b,3) = sqrt(n_a) + sqrt(n_b)
+    end if
+
+  end subroutine getTranOccMat22_
+
+
+  !> Calculate density matrix contribution from FON derivative of weighting factors in (2,2) case
+  subroutine getDensFon22_(rhoSqrL, weightIL, Lpaired, matX)
+
+    !> Dense density matrix for each microstate
+    real(dp), intent(in) :: rhoSqrL(:,:,:,:)
+
+    !> modified weight of each microstate
+    real(dp), intent(in) :: weightIL(:)
+
+    !> Number of spin-paired microstates
+    integer, intent(in) :: Lpaired
+
+    !> temporary density matrix contribution with FON derivatives
+    real(dp), intent(inout) :: matX(:,:,:)
+
+    real(dp), allocatable :: tmpMat(:,:)
+    real(dp), allocatable :: fac(:)
+    integer :: ist, iL, nOrb, nstates, Lmax
+
+    nOrb = size(rhoSqrL,dim=1)
+    nstates = size(matX,dim=3)
+    Lmax = size(weightIL,dim=1)
+
+    allocate(tmpMat(nOrb,nOrb))
+    allocate(fac(nstates))
+
+    ! Loop for contributions of SA-REKS(2,2) states
+    do ist = 1, nstates
+      if (ist == 1) then
+        fac(ist) = 1.0_dp
+      else if (ist == 2) then
+        ! The weighting factors for OSS states are fixed numbers,
+        ! so they do not contribute the TDP gradient
+        fac(ist) = 0.0_dp
+      else if (ist == 3) then
+        fac(ist) = -1.0_dp
+      end if
+    end do
+
+    ! Derivative of n_a generates I_L contribution
+    tmpMat(:,:) = 0.0_dp
+    do iL = 1, Lmax
+      if (iL <= Lpaired) then
+        tmpMat(:,:) = tmpMat + rhoSqrL(:,:,1,iL) * weightIL(iL)
+      else
+        if (mod(iL,2) == 1) then
+          tmpMat(:,:) = tmpMat + rhoSqrL(:,:,1,iL) * weightIL(iL)
+        else
+          tmpMat(:,:) = tmpMat + rhoSqrL(:,:,1,iL-1) * weightIL(iL)
+        end if
+      end if
+    end do
+
+    matX(:,:,:) = 0.0_dp
+    do ist = 1, nstates
+      matX(:,:,ist) = fac(ist) * tmpMat
+    end do
+
+  end subroutine getDensFon22_
+
+
+  !> Calculate density matrix contribution from FON derivative of SI terms in (2,2) case
+  subroutine getTranFon22_(eigenvecs, FONs, Nc, nstates, matDel)
+
+    !> Eigenvectors on eixt
+    real(dp), intent(in) :: eigenvecs(:,:,:)
+
+    !> Fractional occupation numbers of active orbitals
+    real(dp), intent(in) :: FONs(:,:)
+
+    !> Number of core orbitals
+    integer, intent(in) :: Nc
+
+    !> Number of states
+    integer, intent(in) :: nstates
+
+    !> temporary transition density matrix contribution with FON derivatives
+    real(dp), intent(inout) :: matDel(:,:,:)
+
+    real(dp) :: n_a, n_b
+    integer :: a, b, mu, nu, nOrb
+
+    nOrb = size(eigenvecs,dim=1)
+
+    n_a = FONs(1,1)
+    n_b = FONs(2,1)
+    a = Nc + 1
+    b = Nc + 2
+
+    do mu = 1, nOrb
+      do nu = 1, nOrb
+        matDel(mu,nu,1) = eigenvecs(nu,b,1) * eigenvecs(mu,a,1) * &
+          & (1.0_dp/sqrt(n_a) + 1.0_dp/sqrt(n_b))
+        if (nstates == 3) then
+          matDel(mu,nu,3) = eigenvecs(nu,b,1) * eigenvecs(mu,a,1) * &
+            & (1.0_dp/sqrt(n_a) - 1.0_dp/sqrt(n_b))
+        end if
+      end do
+    end do
+
+  end subroutine getTranFon22_
 
 
 end module dftbp_reks_reksproperty

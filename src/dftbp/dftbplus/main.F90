@@ -1679,8 +1679,8 @@ contains
             & this%img2CentCell, this%orb, this%nonSccDeriv, this%skHamCont, this%skOverCont,&
             & this%repulsive, this%coord, this%coord0, this%species, this%q0, this%eigvecsReal,&
             & this%chrgForces, this%ints%overlap, this%spinW, this%onSiteElements, this%derivs,&
-            & this%tWriteAutotest, autotestTag, this%taggedWriter, this%reks, errStatus,&
-            & symNeighbourList=this%symNeighbourList, nNeighbourCamSym=this%nNeighbourCamSym)
+            & this%tWriteAutotest, autotestTag, this%taggedWriter, this%densityMatrix, this%reks,&
+            & errStatus, symNeighbourList=this%symNeighbourList, nNeighbourCamSym=this%nNeighbourCamSym)
         @:PROPAGATE_ERROR(errStatus)
         call getReksGradProperties(env, this%denseDesc, this%neighbourList, this%nNeighbourSK,&
             & this%iSparseStart, this%img2CentCell, this%eigvecsReal, this%orb,&
