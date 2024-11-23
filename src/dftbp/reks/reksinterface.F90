@@ -47,7 +47,8 @@ module dftbp_reks_reksinterface
       & buildinteractionvectors, getq2mat, getq1del, buildlstatevector, gethxckernel, &
       & getsuperamatrix, getenergyweighteddensityl, derivative_blockl, getg1ilomegarab, &
       & getextchrggradients
-  use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp
+  use dftbp_reks_reksio, only : writereksrelaxedcharge, printreksgradinfo, writerekstdp,&
+      & writeReksTdpGrad
   use dftbp_reks_reksproperty, only : getrelaxeddensmat, getrelaxeddensmatl,&
       & getunrelaxeddensmatandtdp, gettdpparameters, buildtdpvectors, getssrcoefderiv,&
       & tdpshift, addcoeftograd, getdipoleintegral, getdipolemomentmatrix, getreksosc
@@ -594,6 +595,7 @@ module dftbp_reks_reksinterface
             end do
           end do
         end if
+        call writeReksTdpGrad(this%TDPgrad)
 
       end if
 

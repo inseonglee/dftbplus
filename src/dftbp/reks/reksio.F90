@@ -29,7 +29,7 @@ module dftbp_reks_reksio
   public :: printReksSAInfo, printReksSSRInfo
   public :: printReksGradInfo
   public :: printUnrelaxedFONs, printRelaxedFONs, printRelaxedFONsL
-  public :: writeReksTDP, writeReksRelaxedCharge
+  public :: writeReksTDP, writeReksRelaxedCharge, writeReksTdpGrad
 
   contains
 
@@ -446,6 +446,47 @@ module dftbp_reks_reksio
     call closeFile(fd)
 
   end subroutine writeReksRelaxedCharge
+
+
+  !> Write tdp_grad.dat file with transidion dipole gradient
+  subroutine writeReksTdpGrad(TDPgrad)
+
+    !> gradient of transition dipole moment term
+    real(dp), intent(in) :: TDPgrad(:,:,:,:)
+
+    character(len=16), parameter :: fname = "tdp_grad.dat"
+    type(TFileDescr) :: fd
+
+    real(dp) :: tmp
+    integer :: ia, ib, ist, nstates, nstHalf
+
+    nstHalf = size(TDPgrad,dim=4)
+
+    tmp = 0.5_dp * (1.0_dp + sqrt(1.0_dp + 8.0_dp*real(nstHalf,dp)))
+    nstates = nint(tmp)
+
+    call openFile(fd, fname, mode="w")
+    write(fd%unit,"(A)") repeat("-", 50)
+    do ist = 1, nstHalf
+
+      call getTwoIndices(nstates, ist, ia, ib, 1)
+
+      write(fd%unit,'(A4,I1,A8,I1,A2)') " < S", ia - 1, " | mu | S", ib - 1, " >"
+      write(fd%unit,"(A)") repeat("-", 50)
+      write(fd%unit,'(A)') " mu_x gradient (au) :"
+      write(fd%unit,'(3(f15.8))') TDPgrad(:,:,1,ist)
+      write(fd%unit,"(A)") repeat("-", 50)
+      write(fd%unit,'(A)') " mu_y gradient (au) :"
+      write(fd%unit,'(3(f15.8))') TDPgrad(:,:,2,ist)
+      write(fd%unit,"(A)") repeat("-", 50)
+      write(fd%unit,'(A)') " mu_z gradient (au) :"
+      write(fd%unit,'(3(f15.8))') TDPgrad(:,:,3,ist)
+      write(fd%unit,"(A)") repeat("-", 50)
+
+    end do
+    call closeFile(fd)
+
+  end subroutine writeReksTdpGrad
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
