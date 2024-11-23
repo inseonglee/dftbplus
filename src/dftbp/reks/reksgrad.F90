@@ -1993,13 +1993,13 @@ contains
 
 
   !> Calculate R*T contribution of gradient (2nd term)
-  subroutine RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, &
-      & iSparseStart, img2CentCell, orb, coord0, Hderiv, Sderiv, rhoSqrL, overSqr, &
-      & deltaRhoSqrL, qOutputL, qBlockL, q0, GammaAO, GammaDeriv, SpinAO, OnsiteAO, &
-      & LrGammaAO, LrGammaDeriv, LrOnsiteAO, RmatL, RdelL, tmpRL, weight, extCharges, &
+  subroutine RTshift(env, sccCalc, denseDesc, neighbourList, nNeighbourSK, iSparseStart, &
+      & img2CentCell, orb, coord0, Hderiv, Sderiv, rhoSqrL, overSqr, deltaRhoSqrL, &
+      & qOutputL, qBlockL, q0, GammaAO, GammaDeriv, SpinAO, OnsiteAO, LrGammaAO, &
+      & LrGammaDeriv, LrOnsiteAO, RmatL, RdelL, tmpRL, RtdpL, weight, extCharges, &
       & blurWidths, rVec, gVec, alpha, vol, getDenseAO, getDenseAtom, getAtomIndex, &
-      & orderRmatL, Lpaired, SAstates, tNAC, isOnsite, isHybridXc, isRS_OnsCorr, &
-      & tExtChrg, tPeriodic, tBlur, isHalf, SAgrad, SIgrad, SSRgrad)
+      & orderRmatL, Lpaired, SAstates, tNAC, tTDPgrad, isOnsite, isHybridXc, isRS_OnsCorr, &
+      & tExtChrg, tPeriodic, tBlur, isHalf, SAgrad, SIgrad, SSRgrad, TDPgrad)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2085,6 +2085,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term
     real(dp), allocatable, intent(in) :: tmpRL(:,:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term
+    real(dp), allocatable, intent(in) :: RtdpL(:,:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -2130,6 +2133,9 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> Are on-site corrections being used?
     logical, intent(in) :: isOnsite
 
@@ -2161,20 +2167,25 @@ contains
     !> gradient of SSR state
     real(dp), intent(inout) :: SSRgrad(:,:,:)
 
+    !> gradient of transition dipole moment
+    real(dp), allocatable, intent(inout) :: TDPgrad(:,:,:,:)
+
 
     ! for common term
     real(dp), allocatable :: deriv1(:,:,:)
     real(dp), allocatable :: deriv2(:,:,:)
+    real(dp), allocatable :: deriv3(:,:,:,:)
 
     ! for scc & pc (sparseSize), LC (nOrbHalf) term
     real(dp), allocatable :: tmpRmatL(:,:,:)
     real(dp), allocatable :: tmpRdelL(:,:,:)
+    real(dp), allocatable :: tmpRtdpL(:,:,:,:)
 
     ! for LC term
     real(dp), allocatable :: SP(:,:,:)
     real(dp), allocatable :: SPS(:,:,:)
 
-    integer :: nAtom, ist, nstates, nstHalf, iL
+    integer :: nAtom, ist, nstates, nstHalf, iL, ii
     integer :: nOrb, nOrbhalf, sparseSize, LmaxR, Lmax
 
     nAtom = size(GammaDeriv,dim=1)
@@ -2190,11 +2201,17 @@ contains
 
     allocate(deriv1(3,nAtom,nstates))
     allocate(deriv2(3,nAtom,nstHalf))
+    if (tTDPgrad) then
+      allocate(deriv3(3,nAtom,3,nstHalf))
+    end if
     if (tNAC) then
       allocate(tmpRmatL(sparseSize,LmaxR,nstates))
       allocate(tmpRdelL(sparseSize,LmaxR,nstHalf))
     else
       allocate(tmpRmatL(sparseSize,LmaxR,1))
+    end if
+    if (tTDPgrad) then
+      allocate(tmpRtdpL(sparseSize,LmaxR,3,nstHalf))
     end if
 
     ! pack R matrix obtained from CP-REKS equation
@@ -2222,15 +2239,29 @@ contains
           & iSparseStart, img2CentCell, orb, RmatL(:,:,:,1), &
           & tmpRmatL(:,:,1))
     end if
+    if (tTDPgrad) then
+      ! transition dipole term
+      tmpRtdpL(:,:,:,:) = 0.0_dp
+      do ist = 1, nstHalf
+        do ii = 1, 3
+          call getRmatSp(env, denseDesc, neighbourList, nNeighbourSK, &
+              & iSparseStart, img2CentCell, orb, RtdpL(:,:,:,ii,ist), &
+              & tmpRtdpL(:,:,ii,ist))
+        end do
+      end do
+    end if
 
     deriv1(:,:,:) = 0.0_dp
     deriv2(:,:,:) = 0.0_dp
+    if (tTDPgrad) then
+      deriv3(:,:,:,:) = 0.0_dp
+    end if
 
     ! scc, spin, and pc term with sparse R and T variables
-    call getSccPcTerms_(sccCalc, Hderiv, Sderiv, rhoSqrL, overSqr, &
-        & qOutputL, q0, GammaAO, GammaDeriv, SpinAO, tmpRmatL, tmpRdelL, &
-        & weight, getDenseAO, getAtomIndex, denseDesc%iAtomStart, &
-        & orderRmatL, Lpaired, SAstates, tNAC, tExtChrg, deriv1, deriv2)
+    call getSccPcTerms_(sccCalc, Hderiv, Sderiv, rhoSqrL, overSqr, qOutputL, &
+        & q0, GammaAO, GammaDeriv, SpinAO, tmpRmatL, tmpRdelL, tmpRtdpL, &
+        & weight, getDenseAO, getAtomIndex, denseDesc%iAtomStart, orderRmatL, &
+        & Lpaired, SAstates, tNAC, tTDPgrad, tExtChrg, deriv1, deriv2, deriv3)
 
     if (isOnsite) then
 
@@ -2248,8 +2279,9 @@ contains
       end do
 
       call getOnsiteTerms_(orb, Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
-          & tmpRmatL, tmpRdelL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
-          & denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+          & tmpRmatL, tmpRdelL, tmpRtdpL, weight, getDenseAO, getDenseAtom, &
+          & getAtomIndex, denseDesc%iAtomStart, orderRmatL, Lpaired, SAstates, &
+          & tNAC, tTDPgrad, deriv1, deriv2, deriv3)
 
       ! rhoSqrL has (my_qm) component
       call ud2qmL(rhoSqrL, Lpaired)
@@ -2258,15 +2290,18 @@ contains
 
     ! point charge term with sparse R and T variables
     if (tExtChrg) then
-      call getPc2ndTerms_(env, coord0, overSqr, tmpRmatL, tmpRdelL, weight, &
+      call getPc2ndTerms_(env, coord0, overSqr, tmpRmatL, tmpRdelL, tmpRtdpL, weight, &
           & extCharges, blurWidths, rVec, gVec, alpha, vol, getDenseAO, getAtomIndex, &
-          & orderRmatL, SAstates, tNAC, tPeriodic, tBlur, deriv1, deriv2)
+          & orderRmatL, SAstates, tNAC, tTDPgrad, tPeriodic, tBlur, deriv1, deriv2, deriv3)
     end if
 
     if (isHalf) then
       deallocate(tmpRmatL)
       if (tNAC) then
         deallocate(tmpRdelL)
+      end if
+      if (tTDPgrad) then
+        deallocate(tmpRtdpL)
       end if
     end if
 
@@ -2281,8 +2316,9 @@ contains
     if (isHybridXc) then
       ! LC term (gamma derivative) with dense R and T variables
       call getLr2ndTerms_(deltaRhoSqrL, overSqr, LrGammaDeriv, SP, SPS, &
-          & RmatL, RdelL, tmpRL, weight, denseDesc%iAtomStart, orderRmatL, &
-          & SAstates, orb%mOrb, tNAC, deriv1, deriv2)
+          & RmatL, RdelL, tmpRL, RtdpL, weight, denseDesc%iAtomStart, &
+          & orderRmatL, SAstates, orb%mOrb, tNAC, tTDPgrad, deriv1, &
+          & deriv2, deriv3)
       deallocate(SPS)
     end if
 
@@ -2292,6 +2328,9 @@ contains
         allocate(tmpRdelL(nOrbHalf,LmaxR,nstHalf))
       else
         allocate(tmpRmatL(nOrbHalf,LmaxR,1))
+      end if
+      if (tTDPgrad) then
+        allocate(tmpRtdpL(nOrbHalf,LmaxR,3,nstHalf))
       end if
 
       ! pack R matrix obtained from CP-REKS equation
@@ -2314,21 +2353,31 @@ contains
         tmpRmatL(:,:,:) = 0.0_dp
         call getRmatHalf(RmatL(:,:,:,1), tmpRmatL(:,:,1))
       end if
+      if (tTDPgrad) then
+        ! transition dipole term
+        tmpRtdpL(:,:,:,:) = 0.0_dp
+        do ist = 1, nstHalf
+          do ii = 1, 3
+            call getRmatHalf(RtdpL(:,:,:,ii,ist), tmpRtdpL(:,:,ii,ist))
+          end do
+        end do
+      end if
     end if
 
     if (isHybridXc) then
       ! LC term (overlap derivative) with half dense R and T variables
       call getLr1stTerms_(Sderiv, deltaRhoSqrL, overSqr, LrGammaAO, SP, &
-          & tmpRmatL, tmpRdelL, weight, getDenseAtom, denseDesc%iAtomStart, &
-          & orderRmatL, SAstates, orb%mOrb, tNAC, deriv1, deriv2)
+          & tmpRmatL, tmpRdelL, tmpRtdpL, weight, getDenseAtom, denseDesc%iAtomStart, &
+          & orderRmatL, SAstates, orb%mOrb, tNAC, tTDPgrad, deriv1, deriv2, deriv3)
     end if
 
     if (isRS_OnsCorr) then
       ! Note that SP and R matrices are already computed
       ! range-separated onsite term with half dense R and T variables
       call getLrOnsiteTerms_(orb, Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO, SP,&
-          & tmpRmatL, tmpRdelL, weight, getDenseAtom, getAtomIndex, denseDesc%iAtomStart,&
-          & orderRmatL, SAstates, tNAC, deriv1, deriv2)
+          & tmpRmatL, tmpRdelL, tmpRtdpL, weight, getDenseAtom, getAtomIndex,&
+          & denseDesc%iAtomStart, orderRmatL, SAstates, tNAC, tTDPgrad, deriv1,&
+          & deriv2, deriv3)
     end if
 
     ! calculate the final gradient
@@ -2337,6 +2386,9 @@ contains
       SIgrad(:,:,:) = SIgrad + deriv2
     else
       SSRgrad(:,:,1) = SSRgrad(:,:,1) - deriv1(:,:,1)
+    end if
+    if (tTDPgrad) then
+      TDPgrad(:,:,:,:) = TDPgrad + deriv3
     end if
 
     contains
@@ -4989,10 +5041,10 @@ contains
 
 
   !> Calculate R*T contribution of gradient from SCC, spin, pc terms
-  subroutine getSccPcTerms_(sccCalc, Hderiv, Sderiv, rhoSqrL, overSqr, &
-      & qOutputL, q0, GammaAO, GammaDeriv, SpinAO, RmatSpL, RdelSpL, &
-      & weight, getDenseAO, getAtomIndex, iSquare, orderRmatL, Lpaired, &
-      & SAstates, tNAC, tExtChrg, deriv1, deriv2)
+  subroutine getSccPcTerms_(sccCalc, Hderiv, Sderiv, rhoSqrL, overSqr, qOutputL, &
+      & q0, GammaAO, GammaDeriv, SpinAO, RmatSpL, RdelSpL, RtdpSpL, weight, &
+      & getDenseAO, getAtomIndex, iSquare, orderRmatL, Lpaired, SAstates, &
+      & tNAC, tTDPgrad, tExtChrg, deriv1, deriv2, deriv3)
 
     !> SCC module internal variables
     type(TScc), allocatable, intent(inout) :: sccCalc
@@ -5030,6 +5082,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term with sparse form
     real(dp), allocatable, intent(in) :: RdelSpL(:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term with sparse form
+    real(dp), allocatable, intent(in) :: RtdpSpL(:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -5054,6 +5109,9 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> If external charges must be considered
     logical, intent(in) :: tExtChrg
 
@@ -5062,6 +5120,9 @@ contains
 
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
+
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
 
     real(dp), allocatable :: q0AO(:)                 ! nOrb
     real(dp), allocatable :: qOutputAO(:,:)          ! nOrb, Lmax; up+down
@@ -5148,7 +5209,7 @@ contains
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,iAtTau1, &
 !$OMP& iAtTau2,iAtGam1,iAtGam2,tmpS,tmpD,tmpGM,tmpPM,tmpQ1,tmpQ2, &
 !$OMP& GammaQderiv,SpinQderiv,mu,nu,iAtom3,iAtom4,tmpV1,tmpG2,tmpG1,tmpS1, &
-!$OMP& tmpCoulomb,ist) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+!$OMP& tmpCoulomb,ist) REDUCTION(+:deriv1,deriv2,deriv3) SCHEDULE(RUNTIME)
     do k = 1, nAtomPair
 
     #:if WITH_OMP
@@ -5295,6 +5356,14 @@ contains
         call shiftRTgradSparse_(deriv1(:,:,1), RmatSpL(:,:,1), &
             & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
       end if
+      if (tTDPgrad) then
+        do ist = 1, nstHalf
+          do ii = 1, 3
+            call shiftRTgradSparse_(deriv3(:,:,ii,ist), RtdpSpL(:,:,ii,ist), &
+                & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+          end do
+        end do
+      end if
 
     end do
     ! end of loop k
@@ -5421,8 +5490,8 @@ contains
 
   !> Calculate R*T contribution of gradient from onsite term
   subroutine getOnsiteTerms_(orb, Sderiv, rhoSqrL, overSqr, qBlockL, q0, OnsiteAO, &
-      & RmatSpL, RdelSpL, weight, getDenseAO, getDenseAtom, getAtomIndex, iSquare, &
-      & orderRmatL, Lpaired, SAstates, tNAC, deriv1, deriv2)
+      & RmatSpL, RdelSpL, RtdpSpL, weight, getDenseAO, getDenseAtom, getAtomIndex, &
+      & iSquare, orderRmatL, Lpaired, SAstates, tNAC, tTDPgrad, deriv1, deriv2, deriv3)
 
     !> atomic orbital information
     type(TOrbitals), intent(in) :: orb
@@ -5451,6 +5520,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term with sparse form
     real(dp), allocatable, intent(in) :: RdelSpL(:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term with sparse form
+    real(dp), allocatable, intent(in) :: RtdpSpL(:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -5478,11 +5550,17 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
     real(dp), intent(inout) :: deriv1(:,:,:)
 
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
+
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
 
     real(dp), allocatable :: deltaQBlockL(:,:,:,:,:)     ! mOrb, mOrb, nAtom, nSpin, Lmax
     real(dp), allocatable :: LmulP(:,:,:,:)              ! mOrb, mOrb, nAtom, Lmax
@@ -5570,7 +5648,7 @@ contains
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2,iAtTau1,iAtTau2, &
 !$OMP& iAtGam1,iAtGam2,tmpSderiv,tmpRho,tmpOver1,tmpOver2,tmpOnsite, &
 !$OMP& Tterm,Tterm1,Tterm2,shiftOM,shiftMM,shiftIM,shiftIM1,shiftIM2, &
-!$OMP& sumRI,shiftPS,iAtom3,iAtom4) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+!$OMP& sumRI,shiftPS,iAtom3,iAtom4) REDUCTION(+:deriv1,deriv2,deriv3) SCHEDULE(RUNTIME)
     loopKK: do k = 1, nAtomSparse
 
     #:if WITH_OMP
@@ -5781,6 +5859,14 @@ contains
           call shiftRTgradSparse_(deriv1(:,:,1), RmatSpL(:,:,1), &
               & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
         end if
+        if (tTDPgrad) then
+          do ist = 1, nstHalf
+            do ii = 1, 3
+              call shiftRTgradSparse_(deriv3(:,:,ii,ist), RtdpSpL(:,:,ii,ist), &
+                  & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+            end do
+          end do
+        end if
 
       end if
 
@@ -5912,8 +5998,8 @@ contains
 
   !> Calculate R*T contribution of gradient from LC term with overlap derivative
   subroutine getLr1stTerms_(Sderiv, deltaRhoSqrL, overSqr, LrGammaAO, SP, &
-      & RmatHalfL, RdelHalfL, weight, getDenseAtom, iSquare, orderRmatL, &
-      & SAstates, mOrb, tNAC, deriv1, deriv2)
+      & RmatHalfL, RdelHalfL, RtdpHalfL, weight, getDenseAtom, iSquare, &
+      & orderRmatL, SAstates, mOrb, tNAC, tTDPgrad, deriv1, deriv2, deriv3)
 
     !> Dense overlap derivative in AO basis
     real(dp), intent(in) :: Sderiv(:,:,:)
@@ -5936,6 +6022,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term with half dense form
     real(dp), allocatable, intent(in) :: RdelHalfL(:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term with half dense form
+    real(dp), allocatable, intent(in) :: RtdpHalfL(:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -5957,11 +6046,17 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
     real(dp), intent(inout) :: deriv1(:,:,:)
 
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
+
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
 
     real(dp), allocatable :: tmpS(:,:,:)            ! mOrb, mOrb, 3
 
@@ -6013,7 +6108,7 @@ contains
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,iAtom1,iAtom2, &
 !$OMP& iAtTau1,iAtTau2,iAtGam1,iAtGam2,tmpS,shiftPP1,shiftPP2, &
 !$OMP& shiftIM1,shiftIM2,shiftFM1,shiftFM2,iL,ii,mu,nu,al,be,l,ist) &
-!$OMP& REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+!$OMP& REDUCTION(+:deriv1,deriv2,deriv3) SCHEDULE(RUNTIME)
     loopKK: do k = 1, nAtomSparse
 
     #:if WITH_OMP
@@ -6196,6 +6291,14 @@ contains
           call shiftRTgradSparse_(deriv1(:,:,1), RmatHalfL(:,:,1), &
               & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
         end if
+        if (tTDPgrad) then
+          do ist = 1, nstHalf
+            do ii = 1, 3
+              call shiftRTgradSparse_(deriv3(:,:,ii,ist), RtdpHalfL(:,:,ii,ist), &
+                  & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+            end do
+          end do
+        end if
 
       end if
 
@@ -6207,8 +6310,8 @@ contains
 
   !> Calculate R*T contribution of gradient from LC term with long-range gamma derivative
   subroutine getLr2ndTerms_(deltaRhoSqrL, overSqr, LrGammaDeriv, SP, SPS, &
-      & RmatL, RdelL, tmpRL, weight, iSquare, orderRmatL, SAstates, mOrb, &
-      & tNAC, deriv1, deriv2)
+      & RmatL, RdelL, tmpRL, RtdpL, weight, iSquare, orderRmatL, SAstates, &
+      & mOrb, tNAC, tTDPgrad, deriv1, deriv2, deriv3)
 
     !> Dense delta density matrix for each microstate
     real(dp), intent(in) :: deltaRhoSqrL(:,:,:,:)
@@ -6234,6 +6337,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term
     real(dp), allocatable, intent(in) :: tmpRL(:,:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term
+    real(dp), allocatable, intent(in) :: RtdpL(:,:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -6252,17 +6358,23 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
     real(dp), intent(inout) :: deriv1(:,:,:)
 
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
 
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
+
     real(dp), allocatable :: SR(:,:,:)
     real(dp), allocatable :: RS(:,:,:)
     real(dp), allocatable :: SRS(:,:,:)
 
-    integer :: iAtom1, iAtom2, nAtom, k, nAtomPair
+    integer :: ii, iAtom1, iAtom2, nAtom, k, nAtomPair
     integer :: ist, nstates, nstHalf, nOrb, LmaxR
 
     nAtom = size(LrGammaDeriv,dim=1)
@@ -6353,6 +6465,35 @@ contains
 
     end if
 
+    if (tTDPgrad) then
+
+      do ist = 1, nstHalf
+        do ii = 1, 3
+
+          call getSRmatrices(RtdpL(:,:,:,ii,ist), overSqr, SR, RS, SRS)
+
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(iAtom1,iAtom2) &
+!$OMP& REDUCTION(+:deriv3) SCHEDULE(RUNTIME)
+          do k = 1, nAtomPair
+
+            call getTwoIndices(nAtom, k, iAtom1, iAtom2, 1)
+
+            call shiftRTgradLr1st_(deriv3(:,:,ii,ist), RtdpL(:,:,:,ii,ist), SPS, LrGammaDeriv, &
+                & weight, iSquare, orderRmatL, mOrb, iAtom1, iAtom2)
+            call shiftRTgradLr1st_(deriv3(:,:,ii,ist), SRS, deltaRhoSqrL(:,:,1,:), LrGammaDeriv, &
+                & weight, iSquare, orderRmatL, mOrb, iAtom1, iAtom2)
+            call shiftRTgradLr2nd_(deriv3(:,:,ii,ist), RS, SP, LrGammaDeriv, &
+                & weight, iSquare, orderRmatL, mOrb, iAtom1, iAtom2, 1)
+            call shiftRTgradLr2nd_(deriv3(:,:,ii,ist), SR, SP, LrGammaDeriv, &
+                & weight, iSquare, orderRmatL, mOrb, iAtom1, iAtom2, 2)
+
+          end do
+!$OMP END PARALLEL DO
+        end do
+      end do
+
+    end if
+
     contains
 
       !> Calculate matrix product of overlap and R matrix
@@ -6404,8 +6545,8 @@ contains
 
   !> Calculate R*T contribution of gradient from range-separated onsite term
   subroutine getLrOnsiteTerms_(orb, Sderiv, deltaRhoSqrL, overSqr, LrOnsiteAO,&
-      & SP, RmatHalfL, RdelHalfL, weight, getDenseAtom, getAtomIndex, iSquare,&
-      & orderRmatL, SAstates, tNAC, deriv1, deriv2)
+      & SP, RmatHalfL, RdelHalfL, RtdpHalfL, weight, getDenseAtom, getAtomIndex,&
+      & iSquare, orderRmatL, SAstates, tNAC, tTDPgrad, deriv1, deriv2, deriv3)
 
     !> atomic orbital information
     type(TOrbitals), intent(in) :: orb
@@ -6431,6 +6572,9 @@ contains
     !> auxiliary matrix in AO basis related to state-interaction term with half dense form
     real(dp), allocatable, intent(in) :: RdelHalfL(:,:,:)
 
+    !> auxiliary matrix in AO basis related to transition dipole term with half dense form
+    real(dp), allocatable, intent(in) :: RtdpHalfL(:,:,:,:)
+
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
 
@@ -6452,11 +6596,17 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> computed tr(R*T) gradient for SA-REKS, SSR, or L state
     real(dp), intent(inout) :: deriv1(:,:,:)
 
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
+
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
 
     real(dp), allocatable :: LmulSP(:,:,:,:)        ! mOrb, mOrb, nAtom, Lmax
     real(dp), allocatable :: LmulSP_RI(:,:,:,:)     ! mOrb, mOrb, nAtom, Lmax
@@ -6561,7 +6711,7 @@ contains
 !$OMP& iAtGam1,iAtGam2,tmpSderiv,tmpRho,tmpSP,tmpOver1,tmpOver2,tmpOnsite, &
 !$OMP& tmpOnsite_RI,Tterm,Tterm0,Tterm1,Tterm2,shiftPS,sumOC,shiftOM, &
 !$OMP& shiftMM,shiftIM,shiftMM1,shiftMM2,shiftIM1,shiftIM2,iAtom3, &
-!$OMP& iAtom4) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+!$OMP& iAtom4) REDUCTION(+:deriv1,deriv2,deriv3) SCHEDULE(RUNTIME)
     loopKK: do k = 1, nAtomSparse
 
     #:if WITH_OMP
@@ -6929,6 +7079,14 @@ contains
           call shiftRTgradSparse_(deriv1(:,:,1), RmatHalfL(:,:,1), &
               & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
         end if
+        if (tTDPgrad) then
+          do ist = 1, nstHalf
+            do ii = 1, 3
+              call shiftRTgradSparse_(deriv3(:,:,ii,ist), RtdpHalfL(:,:,ii,ist), &
+                  & TderivL(:,:,:,id), weight, orderRmatL, iAtom1, iAtom2)
+            end do
+          end do
+        end if
 
       end if
 
@@ -7098,9 +7256,10 @@ contains
 
 
   !> Calculate R*T contribution of gradient from pc terms
-  subroutine getPc2ndTerms_(env, coord0, overSqr, RmatSpL, RdelSpL, &
+  subroutine getPc2ndTerms_(env, coord0, overSqr, RmatSpL, RdelSpL, RtdpSpL, &
       & weight, extCharges, blurWidths, rVec, gVec, alpha, vol, getDenseAO, &
-      & getAtomIndex, orderRmatL, SAstates, tNAC, tPeriodic, tBlur, deriv1, deriv2)
+      & getAtomIndex, orderRmatL, SAstates, tNAC, tTDPgrad, tPeriodic, tBlur, &
+      & deriv1, deriv2, deriv3)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -7116,6 +7275,9 @@ contains
 
     !> auxiliary matrix in AO basis related to state-interaction term with sparse form
     real(dp), allocatable, intent(in) :: RdelSpL(:,:,:)
+
+    !> auxiliary matrix in AO basis related to transition dipole term with sparse form
+    real(dp), allocatable, intent(in) :: RtdpSpL(:,:,:,:)
 
     !> Weight of each microstate for state to be optimized; weight = weightL * SAweight
     real(dp), intent(in) :: weight(:)
@@ -7153,6 +7315,9 @@ contains
     !> Calculate nonadiabatic coupling vectors
     logical, intent(in) :: tNAC
 
+    !> Calculate gradients of transition dipole moment
+    logical, intent(in) :: tTDPgrad
+
     !> if calculation is periodic
     logical, intent(in) :: tPeriodic
 
@@ -7165,11 +7330,14 @@ contains
     !> computed tr(R*T) gradient for state-interaction term
     real(dp), intent(inout) :: deriv2(:,:,:)
 
+    !> computed tr(R*T) gradient for transition dipole term
+    real(dp), allocatable, intent(inout) :: deriv3(:,:,:,:)
+
     real(dp), allocatable :: QinvRderiv(:,:)      ! ... nAtom, 3
     real(dp), allocatable :: Tderiv(:,:,:)        ! ... sparseSize, 3, Ncpu
 
     real(dp) :: tmpCoulombDeriv(3)
-    integer :: iAtom1, iAtom3, iAtom4, nAtom
+    integer :: ii, iAtom1, iAtom3, iAtom4, nAtom
     integer :: ist, nstates, nstHalf, mu, nu, l, sparseSize, id, Ncpu
 
     nAtom = size(coord0,dim=2)
@@ -7196,8 +7364,9 @@ contains
 
     ! compute R*T shift with only up-spin part of Tderiv due to symmetry
     ! contribution for derivative of 1/r coulomb potential w.r.t. R_atom, not R_atompair
+
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(id,mu,nu,iAtom3,iAtom4, &
-!$OMP& tmpCoulombDeriv) REDUCTION(+:deriv1,deriv2) SCHEDULE(RUNTIME)
+!$OMP& tmpCoulombDeriv) REDUCTION(+:deriv1,deriv2,deriv3) SCHEDULE(RUNTIME)
     do iAtom1 = 1, nAtom
 
     #:if WITH_OMP
@@ -7258,6 +7427,14 @@ contains
       else
         call shiftRTgradPc_(deriv1(:,:,1), RmatSpL(:,:,1), &
             & Tderiv(:,:,id), weight, orderRmatL, iAtom1)
+      end if
+      if (tTDPgrad) then
+        do ist = 1, nstHalf
+          do ii = 1, 3
+            call shiftRTgradPc_(deriv3(:,:,ii,ist), RtdpSpL(:,:,ii,ist), &
+                & Tderiv(:,:,id), weight, orderRmatL, iAtom1)
+          end do
+        end do
       end if
 
     end do
